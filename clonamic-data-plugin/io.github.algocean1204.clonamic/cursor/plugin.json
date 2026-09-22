@@ -1,0 +1,15 @@
+{
+  "name": "clonamic-data-plugin",
+  "version": "1.0.0",
+  "description": "Optional dataset and Hugging Face workflow guidance.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "datasets",
+    "hugging-face",
+    "training-data"
+  ],
+  "skills": "./skills/"
+}

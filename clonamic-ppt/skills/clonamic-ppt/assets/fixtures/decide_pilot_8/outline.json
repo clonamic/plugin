@@ -1,0 +1,95 @@
+{
+  "title": "12주 자동화 파일럿 승인",
+  "purpose": "decide",
+  "narrative_arc": "problem → evidence → options → recommendation → request",
+  "slides": [
+    {
+      "sequence": 1,
+      "slide_id": "s01",
+      "role": "title",
+      "title": "12주 파일럿으로 비용과 리스크를 동시에 검증한다",
+      "job": "결론을 먼저 두고 검증 기간을 숫자로 고정한다",
+      "takeaway": "12주 파일럿으로 비용과 리스크를 동시에 검증할 수 있다",
+      "must_show": ["12주 검증 기간", "되돌릴 수 있는 게이트"],
+      "visual": "hero_assertion",
+      "bridge_type": null
+    },
+    {
+      "sequence": 2,
+      "slide_id": "s02",
+      "role": "summary",
+      "title": "승인 범위는 3개 팀과 한정 워크플로로 묶는다",
+      "job": "오늘 결정이 전사 롤아웃이 아님을 못 박는다",
+      "takeaway": "승인 요청은 3개 팀, 한정된 워크플로, 명확한 성공 기준에 국한된다",
+      "must_show": ["범위 승인", "담당 운영총괄", "이번 주 합의"],
+      "visual": "proof_grid",
+      "bridge_type": "implication"
+    },
+    {
+      "sequence": 3,
+      "slide_id": "s03",
+      "role": "assertion",
+      "title": "수작업 병목이 지연과 재작업을 함께 만든다",
+      "job": "병목을 원인 단위로 보여 준다",
+      "takeaway": "수작업 병목이 지연과 재작업을 함께 만든다",
+      "must_show": ["반복 작성", "승인 대기", "재작업"],
+      "visual": "proof_grid",
+      "bridge_type": "evidence"
+    },
+    {
+      "sequence": 4,
+      "slide_id": "s04",
+      "role": "data",
+      "title": "반복 검증이 처리 시간의 가장 큰 병목이다",
+      "job": "숫자 세 개로 병목 크기를 고정한다",
+      "takeaway": "반복 검증이 처리 시간의 가장 큰 병목이다",
+      "must_show": ["반복 비율", "대기 시간", "재작업 비율"],
+      "visual": "metric_strip",
+      "bridge_type": "evidence"
+    },
+    {
+      "sequence": 5,
+      "slide_id": "s05",
+      "role": "comparison",
+      "title": "파일럿은 관리형 도입이 내부 개발보다 적합하다",
+      "job": "내부 개발과 관리형을 같은 기준으로 대조한다",
+      "takeaway": "파일럿은 관리형 도입이 내부 개발보다 적합하다",
+      "must_show": ["착수 속도", "범위 통제", "중단 가능성"],
+      "visual": "comparison_2col",
+      "bridge_type": "contrast"
+    },
+    {
+      "sequence": 6,
+      "slide_id": "s06",
+      "role": "process",
+      "title": "12주는 되돌릴 수 있는 3개 게이트로 나눈다",
+      "job": "되돌릴 수 있는 순서를 보여 준다",
+      "takeaway": "12주는 되돌릴 수 있는 3개 게이트로 나눈다",
+      "must_show": ["착수 게이트", "중간 판정", "종료 판정"],
+      "visual": "process_flow",
+      "bridge_type": "zoom_in"
+    },
+    {
+      "sequence": 7,
+      "slide_id": "s07",
+      "role": "recommendation",
+      "title": "성공은 품질·속도·비용의 사전 합의 지표로 본다",
+      "job": "성공 기준을 합의 문장으로 고정한다",
+      "takeaway": "성공은 품질·속도·비용의 사전 합의 지표로 본다",
+      "must_show": ["품질 기준", "속도 기준", "비용 기준"],
+      "visual": "proof_grid",
+      "bridge_type": "answer"
+    },
+    {
+      "sequence": 8,
+      "slide_id": "s08",
+      "role": "summary",
+      "title": "오늘 필요한 결정은 예산과 책임자 지정이다",
+      "job": "오늘 적을 두 칸만 남긴다",
+      "takeaway": "오늘 필요한 결정은 예산과 책임자 지정이다",
+      "must_show": ["예산 한도", "단일 책임자"],
+      "visual": "recommendation",
+      "bridge_type": "implication"
+    }
+  ]
+}

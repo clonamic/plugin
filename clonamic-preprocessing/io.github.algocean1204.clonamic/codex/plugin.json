@@ -1,0 +1,29 @@
+{
+  "name": "clonamic-preprocessing",
+  "version": "1.0.0",
+  "description": "Deterministic input normalization, clarification packets, priority queues, and explicit loop_auto.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "input",
+    "clarification",
+    "queue",
+    "loop-auto"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Clonamic Preprocessing",
+    "shortDescription": "Deterministic input normalization, clarification packets, priority queues, and explicit loop_auto.",
+    "longDescription": "Deterministic input normalization, clarification packets, priority queues, and explicit loop_auto.",
+    "developerName": "Clonamic",
+    "category": "Workflow",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Use Clonamic Preprocessing for this task."
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "clonamic-ppt",
+  "version": "1.0.0",
+  "description": "Create editable widescreen presentations through a deterministic layout and QA engine.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "presentation",
+    "pptx",
+    "slides",
+    "layout",
+    "qa"
+  ],
+  "skills": "./skills/"
+}

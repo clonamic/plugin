@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "policy": "Clean-room adaptation of documented methods only; no upstream source files copied.",
+  "sources": [
+    {
+      "name": "Microsoft Resource2Skill",
+      "repository": "https://github.com/microsoft/Resource2Skill",
+      "commit": "7f101b4cfe214cc496d085a34efac528a17cc375",
+      "license": "MIT",
+      "adapted_concepts": ["bounded SVG QA flow", "source-locked capability contract"],
+      "imported_files": []
+    },
+    {
+      "name": "deck-dna",
+      "repository": "https://github.com/opitaru-sys/deck-dna",
+      "commit": "a77a3dbc7cd007a3f6add610f6a5f8aa893d7a2f",
+      "license": "MIT",
+      "adapted_concepts": ["measure actual slide style", "median word ceiling"],
+      "imported_files": []
+    },
+    {
+      "name": "PPTX-Template-Skills",
+      "repository": "https://github.com/CxyZyr/PPTX-Template-Skills",
+      "commit": "e3139a08b4bf96bb2cda0046b8d3627e69737f11",
+      "license": "MIT",
+      "adapted_concepts": ["semantic template contract", "placeholder-first filling"],
+      "imported_files": []
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "./schemas/clonamic-config.schema.json",
+  "schema_version": 1,
+  "plugins": {
+    "clonamic-code-plugin": true,
+    "clonamic-writing-plugin": true,
+    "clonamic-design-plugin": true,
+    "clonamic-data-plugin": true,
+    "clonamic-documents-plugin": true,
+    "clonamic-ppt": true,
+    "clonamic-preprocessing": true,
+    "clonamic-memory": true,
+    "clonamic-my-language-plugin": true,
+    "clonamic-grok": true,
+    "clonamic-gpt": true,
+    "clonamic-claude": true,
+    "clonamic-hermes": true
+  }
+}

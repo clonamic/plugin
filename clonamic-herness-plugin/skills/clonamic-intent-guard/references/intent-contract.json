@@ -1,0 +1,31 @@
+{
+  "public_surface": "SKILL.md",
+  "input_fields": [
+    "request",
+    "approved_scope",
+    "planned_actions",
+    "existing_capabilities",
+    "current_evidence"
+  ],
+  "violation_checks": [
+    "scope_drift",
+    "adjacent_work",
+    "duplicate_implementation",
+    "speculative_abstraction",
+    "reasoning_past_evidence"
+  ],
+  "output": {
+    "type": "IntentVerdict",
+    "fields": [
+      "status",
+      "reasons",
+      "out_of_scope",
+      "unnecessary_work",
+      "smallest_valid_scope",
+      "rework"
+    ],
+    "status_values": ["pass", "reject"]
+  },
+  "reject_policy": "Remove rejected work and continue only inside the smallest valid scope.",
+  "side_effect_policy": "Read-only; never authorizes writes, delegation, installation, or external execution."
+}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic Memory"
+  short_description: "Store, recall, forget, and traverse explicitly"
+  default_prompt: "Use $clonamic-memory for this explicit memory operation."
+policy:
+  allow_implicit_invocation: true

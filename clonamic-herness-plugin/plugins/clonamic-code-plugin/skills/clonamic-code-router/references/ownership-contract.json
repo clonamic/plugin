@@ -1,0 +1,16 @@
+{
+  "owns": [
+    "development_stage_selection",
+    "modular_design_method",
+    "patch_discipline",
+    "native_multi_agent_decision_review"
+  ],
+  "consumes": ["approved_scope"],
+  "does_not_own": [
+    "authorization",
+    "completion_verdict",
+    "user_report",
+    "external_executor_selection",
+    "installation"
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-13",
+  "sources": [
+    {
+      "name": "apple-design",
+      "repository": "https://github.com/emilkowalski/skills.git",
+      "commit": "7bb7061b5cf7de15ea1aeaf00fbd9e6592a20fce",
+      "sha256": "11840b24a11d7f94f39c6aaab074750ae4e4de4ef54ee4b1dd97e16ebd485e61",
+      "license": "MIT",
+      "offline": "full-guidance",
+      "redistribution": "adapted principles and attribution"
+    },
+    {
+      "name": "ui-ux-pro-max-skill",
+      "repository": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill.git",
+      "commit": "3da52ff1cab1be91848072ec1be5f493d730fd5f",
+      "sha256": "d9983d2a21d330b6b696480940fd78029f7b34027814f2ac1cf17c5d0b042407",
+      "vendored_files": {
+        "scripts/search.py": "51040df139685a0c70fcdc46f98a8470b7cc9c15c9298f202be560afc114e74a",
+        "scripts/core.py": "ab9f398b493e34404448cefc766239ee86119c7a21d8581ba965cabdc698b0a8",
+        "scripts/design_system.py": "64821c42c96099f4a34bb543f5da3f7651fc2634fd30bb52e06b392e3a6c3ccd"
+      },
+      "license": "MIT",
+      "offline": "vendored data and stdlib scripts",
+      "redistribution": "selected data, scripts, and license"
+    },
+    {
+      "name": "anthropic-skills",
+      "repository": "https://github.com/anthropics/skills.git",
+      "commit": "9d2f1ae187231d8199c64b5b762e1bdf2244733d",
+      "sha256": "1608ea77fbb6fc30d13a97d12cfa8ebf31358d40f0dd97beed24829d6b3f45dd",
+      "license": "Apache-2.0 per skill",
+      "offline": "adapted canvas, frontend, and algorithmic guidance",
+      "redistribution": "adapted skill text and license files"
+    },
+    {
+      "name": "vercel-web-interface-guidelines",
+      "repository": "https://github.com/vercel-labs/web-interface-guidelines.git",
+      "commit": "4e799d45c17aec1498c269287a83b9dba22b966b",
+      "sha256": "eea73cb6dd46fee9faec9973e8e7fe198b5f07ec326f14d276a56e50287e1cab",
+      "license": "MIT",
+      "offline": "pinned local checklist",
+      "redistribution": "command snapshot and license"
+    },
+    {
+      "name": "skill.color-expert",
+      "repository": "https://github.com/meodai/skill.color-expert.git",
+      "commit": "22b3889ca2107b1fd58ff59c8e41302a3f7a5043",
+      "sha256": "36656da07b9c61c090b01e50e8ef7b3e19dcec4260f9b2c7e7ba61475ba12655",
+      "license": "CC-BY-4.0 for original material",
+      "offline": "original skill, index, and modified summary",
+      "redistribution": "third-party reference corpus intentionally excluded"
+    },
+    {
+      "name": "openai-figma-plugin",
+      "repository": "https://github.com/openai/plugins.git",
+      "commit": "bd2122cb92f2ade874d8c2b1d00383976ab9415b",
+      "sha256": "2a79914c6b4b71740585978480e6a397d4e952f03670b03b1716689fc87ab46d",
+      "license": "Figma Developer Terms",
+      "offline": "routing guidance only; live work requires MCP",
+      "redistribution": "no plugin content vendored"
+    },
+    {
+      "name": "claudedesignskills",
+      "repository": "https://github.com/freshtechbro/claudedesignskills.git",
+      "commit": "1da73febff0c3e1dfefc07f8a5ef8f7d1dfdb6cd",
+      "sha256": "88879963b114524277e84c19870c509d0b496f4025ea01e9e655ea5b077fdcb0",
+      "license": "MIT",
+      "offline": "conditional guidance catalog; runtimes excluded",
+      "redistribution": "selected SKILL and reference files"
+    },
+    {
+      "name": "hand-drawn-diagrams",
+      "repository": "https://github.com/muthuishere/hand-drawn-diagrams.git",
+      "commit": "21a8ab20fdea094fe10f5c608e33789e17d168e1",
+      "sha256": "1326021b17b70e42737a2190c8b718df088a1f0c646069bd356ce91bb798ea8e",
+      "license": "MIT",
+      "offline": "editable Excalidraw and validation path",
+      "redistribution": "selected references, validator, and license"
+    },
+    {
+      "name": "impeccable",
+      "repository": "https://github.com/pbakaus/impeccable.git",
+      "commit": "630fc2682a5bd39b25a8e61f74b6b3f14f2b1e21",
+      "sha256": "14c4642368557af1f7bbaaac0aa184b791e6d70665dfd8fc53d8d4124f81abb8",
+      "license": "Apache-2.0",
+      "offline": "installed upstream-named specialist",
+      "redistribution": "kept separately under upstream name"
+    },
+    {
+      "name": "astryx",
+      "repository": "https://github.com/facebook/astryx.git",
+      "commit": "d7c9a39b281fad9aed42820894de53c3c8814fcb",
+      "sha256": "68c31232869bf6674bc128e800fccaca42881d8424c17ab87e9a6012cf0ecb58",
+      "license": "MIT",
+      "offline": "eligibility guidance only; package not vendored",
+      "redistribution": "no component package vendored"
+    }
+  ],
+  "bundles": [
+    {
+      "name": "p5.js",
+      "version": "1.7.0",
+      "runtime_sha256": "bb7f8f14b9ce2e2344ff5cd6c06f2e105eb99541ecbfec77139e2886d9c0b9ba",
+      "source_sha256": "d075ad44977864ad119488c8f9163a2f95f6bdaff7e20057b795e15693fd90d0",
+      "license": "LGPL-2.1",
+      "license_sha256": "eb2f25f8f165d5f20682c1ce7e99ce69144ecfd80fbed8c17dfd327ecd8b6cb6",
+      "offline": "bundled minified runtime, readable source, and full license"
+    }
+  ]
+}

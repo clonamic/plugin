@@ -1,0 +1,83 @@
+[
+  {
+    "name": "native-default",
+    "input": {},
+    "expected": {"stages": ["native"], "ultracode": "not_eligible"}
+  },
+  {
+    "name": "architecture-design",
+    "input": {"explicit_architecture": true},
+    "expected": {"stages": ["modular-design"], "ultracode": "not_eligible"}
+  },
+  {
+    "name": "large-refactor-design",
+    "input": {"large_refactor": true},
+    "expected": {"stages": ["modular-design"], "ultracode": "not_eligible"}
+  },
+  {
+    "name": "approved-risky-code-write",
+    "input": {
+      "approved_write": true,
+      "non_trivial_code": true,
+      "stale_or_ambiguous_patch_risk": true
+    },
+    "expected": {"stages": ["supercoder"], "ultracode": "not_eligible"}
+  },
+  {
+    "name": "unapproved-code-write",
+    "input": {
+      "non_trivial_code": true,
+      "stale_or_ambiguous_patch_risk": true
+    },
+    "expected": {"stages": ["native"], "ultracode": "not_eligible"}
+  },
+  {
+    "name": "small-exact-edit",
+    "input": {
+      "approved_write": true,
+      "non_trivial_code": false,
+      "stale_or_ambiguous_patch_risk": false
+    },
+    "expected": {"stages": ["native"], "ultracode": "not_eligible"}
+  },
+  {
+    "name": "all-ultracode-gates",
+    "input": {
+      "multiple_viable_options": true,
+      "material_boundary_impact": true,
+      "evidence_cannot_resolve": true,
+      "wrong_choice_cost_exceeds_review": true,
+      "native_multi_agent_capability": true
+    },
+    "expected": {"stages": ["ultracode"], "ultracode": "active"}
+  },
+  {
+    "name": "ultracode-capability-missing",
+    "input": {
+      "multiple_viable_options": true,
+      "material_boundary_impact": true,
+      "evidence_cannot_resolve": true,
+      "wrong_choice_cost_exceeds_review": true
+    },
+    "expected": {"stages": ["native"], "ultracode": "unavailable"}
+  },
+  {
+    "name": "ultracode-one-gate-missing",
+    "input": {
+      "multiple_viable_options": true,
+      "material_boundary_impact": true,
+      "evidence_cannot_resolve": true,
+      "wrong_choice_cost_exceeds_review": false,
+      "native_multi_agent_capability": true
+    },
+    "expected": {"stages": ["native"], "ultracode": "not_eligible"}
+  },
+  {
+    "name": "size-alone-does-not-activate-ultracode",
+    "input": {
+      "large_task": true,
+      "native_multi_agent_capability": true
+    },
+    "expected": {"stages": ["native"], "ultracode": "not_eligible"}
+  }
+]

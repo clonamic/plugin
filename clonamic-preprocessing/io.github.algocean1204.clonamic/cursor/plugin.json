@@ -1,0 +1,16 @@
+{
+  "name": "clonamic-preprocessing",
+  "version": "1.0.0",
+  "description": "Deterministic input normalization, clarification packets, priority queues, and explicit loop_auto.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "input",
+    "clarification",
+    "queue",
+    "loop-auto"
+  ],
+  "skills": "./skills/"
+}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic Code Router"
+  short_description: "Select the smallest safe coding method"
+  default_prompt: "Use $clonamic-code-router to route this coding request proportionally."
+policy:
+  allow_implicit_invocation: true

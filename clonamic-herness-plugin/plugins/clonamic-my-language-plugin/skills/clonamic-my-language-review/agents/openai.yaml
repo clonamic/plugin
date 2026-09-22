@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic My Language Review"
+  short_description: "Review one explicitly styled draft"
+  default_prompt: "Use $clonamic-my-language-review inside the active style command."
+policy:
+  allow_implicit_invocation: false

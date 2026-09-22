@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clonamic Completion Check"
+  short_description: "Prove the task is complete before reporting completion"
+  default_prompt: "Use $clonamic-completion-check to verify this task before reporting it done."

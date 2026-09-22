@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptEnvelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prompt_id", "session_id", "claimed_source", "body", "body_sha256", "received_at", "parent_prompt_id", "automation"],
+  "properties": {
+    "prompt_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "session_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "claimed_source": {"enum": ["user", "automation", "internal"]},
+    "body": {"type": "string"},
+    "body_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "received_at": {"type": "integer", "minimum": 0},
+    "parent_prompt_id": {"type": ["string", "null"]},
+    "automation": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["automation_id", "run_id", "scope_digest"],
+          "properties": {
+            "automation_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "run_id": {"type": "string", "minLength": 1, "maxLength": 128},
+            "scope_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        }
+      ]
+    }
+  },
+  "trusted_host_sources": ["user", "automation", "internal", "unverified"],
+  "derived_authorities": ["interactive_user", "preapproved_automation", "inherited_internal", "none"],
+  "automation_classification": "candidate_only",
+  "automation_authority": "A successful persisted claim returns the only accepted claimed-authority result.",
+  "mismatch_authority": "none",
+  "internal_scope": "intersection(parent_scope, assignment_scope)",
+  "scope_authority_fields": ["prompt_id", "session_id", "authority", "scope"],
+  "internal_parent_policy": "Envelope parent_prompt_id and session_id must exactly match ScopeAuthority.",
+  "automation_marker": "[\"자동화\"]",
+  "automation_marker_policy": "display_only",
+  "body_policy": "Preserve exact UTF-8 bytes and verify body_sha256 before classification."
+}

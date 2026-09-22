@@ -1,0 +1,16 @@
+{
+  "name": "clonamic-memory",
+  "version": "1.0.0",
+  "description": "Explicit local store, recall, forget, link, and bounded graph operations.",
+  "license": "MIT",
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "memory",
+    "recall",
+    "forget",
+    "graph"
+  ],
+  "skills": "./skills/"
+}

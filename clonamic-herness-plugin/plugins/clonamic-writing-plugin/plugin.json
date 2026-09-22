@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-writing-plugin",
+  "version": "1.0.0",
+  "description": "Optional publication writing, Korean clarity, and deterministic final prose cleanup.",
+  "license": "MIT",
+  "author": {"name": "Clonamic"},
+  "keywords": ["writing", "korean", "clarity", "publication"]
+}

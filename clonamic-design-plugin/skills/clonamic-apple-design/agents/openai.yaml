@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clonamic Apple Design"
+  short_description: "Apple-first interaction foundation for substantial UI work"
+  default_prompt: "Apply the Apple interaction foundation to this UI task while preserving explicit references and the project design system."

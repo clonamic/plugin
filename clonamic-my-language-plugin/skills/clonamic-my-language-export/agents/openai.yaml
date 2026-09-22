@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic My Language Export"
+  short_description: "Export a private raw-free style checkpoint"
+  default_prompt: "Use $clonamic-my-language-export to export my current profile."
+policy:
+  allow_implicit_invocation: false

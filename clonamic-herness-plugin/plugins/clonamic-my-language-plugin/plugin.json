@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-my-language-plugin",
+  "version": "0.1.0",
+  "description": "Explicit local prompt capture, observable style profiling, and portable profile export.",
+  "license": "MIT",
+  "author": {"name": "Clonamic"},
+  "keywords": ["language", "style", "sqlite", "explicit", "local"]
+}

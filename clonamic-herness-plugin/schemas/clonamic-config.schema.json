@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/algocean1204/clonamic-herness-plugin/schemas/clonamic-config.schema.json",
+  "title": "Clonamic plugin configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plugins"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"type": "integer", "const": 1},
+    "plugins": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clonamic-code-plugin": {"type": "boolean"},
+        "clonamic-writing-plugin": {"type": "boolean"},
+        "clonamic-design-plugin": {"type": "boolean"},
+        "clonamic-data-plugin": {"type": "boolean"},
+        "clonamic-documents-plugin": {"type": "boolean"},
+        "clonamic-ppt": {"type": "boolean"},
+        "clonamic-preprocessing": {"type": "boolean"},
+        "clonamic-memory": {"type": "boolean"},
+        "clonamic-my-language-plugin": {"type": "boolean"},
+        "clonamic-grok": {"type": "boolean"},
+        "clonamic-gpt": {"type": "boolean"},
+        "clonamic-claude": {"type": "boolean"},
+        "clonamic-hermes": {"type": "boolean"}
+      }
+    }
+  }
+}

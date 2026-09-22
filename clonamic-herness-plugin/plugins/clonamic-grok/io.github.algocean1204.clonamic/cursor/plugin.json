@@ -1,0 +1,15 @@
+{
+  "name": "clonamic-grok",
+  "version": "1.0.0",
+  "description": "One bounded call through the installed Grok CLI.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "grok",
+    "executor",
+    "bounded-call"
+  ],
+  "skills": "./skills/"
+}

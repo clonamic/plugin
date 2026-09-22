@@ -1,0 +1,15 @@
+{
+  "name": "clonamic-documents-plugin",
+  "version": "1.0.0",
+  "description": "Optional HWPX and document-specialist workflows.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "documents",
+    "hwpx",
+    "hancom"
+  ],
+  "skills": "./skills/"
+}

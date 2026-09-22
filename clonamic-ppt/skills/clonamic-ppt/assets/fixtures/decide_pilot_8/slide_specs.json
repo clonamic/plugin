@@ -1,0 +1,167 @@
+{
+  "title": "12주 자동화 파일럿 승인",
+  "language": "ko-KR",
+  "purpose": "decide",
+  "slides": [
+    {
+      "slide_id": "s01",
+      "sequence": 1,
+      "role": "title",
+      "takeaway": "12주 파일럿으로 비용과 리스크를 동시에 검증할 수 있다",
+      "title": "12주 파일럿으로 비용과 리스크를 동시에 검증한다",
+      "subtitle": "운영 자동화 파일럿 승인 요청",
+      "importance": "hero",
+      "speaker_notes": "첫 장에서 결론을 먼저 말하고, 범위는 다음 장에서 한정한다고 예고한다.",
+      "content_blocks": [
+        {
+          "type": "metric_card",
+          "value": "12주",
+          "label": "검증 기간",
+          "supporting_text": "되돌릴 수 있는 3개 게이트"
+        }
+      ]
+    },
+    {
+      "slide_id": "s02",
+      "sequence": 2,
+      "role": "summary",
+      "takeaway": "승인 요청은 3개 팀, 한정된 워크플로, 명확한 성공 기준에 국한된다",
+      "title": "승인 범위는 3개 팀과 한정 워크플로로 묶는다",
+      "importance": "standard",
+      "speaker_notes": "범위 밖 전사 롤아웃은 오늘 결정이 아니라고 분명히 한다.",
+      "content_blocks": [
+        {
+          "type": "bullets",
+          "items": [
+            "범위 승인 — 오늘 결정은 3개 팀과 워크플로 1개에만 적용된다",
+            "담당 운영총괄 — 범위 합의서 초안을 닫고 회의록에 남긴다",
+            "이번 주 합의 — 운영 회의가 끝나기 전에 범위를 잠근다"
+          ]
+        }
+      ]
+    },
+    {
+      "slide_id": "s03",
+      "sequence": 3,
+      "role": "assertion",
+      "takeaway": "현재 수작업 병목은 고객 응답 지연과 재작업을 동시에 만든다",
+      "title": "수작업 병목이 지연과 재작업을 함께 만든다",
+      "importance": "standard",
+      "speaker_notes": "다음 장에서 시간이 어디에 쓰이는지 숫자로 보여준다.",
+      "content_blocks": [
+        {
+          "type": "bullets",
+          "items": [
+            "응답 대기 — 티켓이 담당자 큐에서 멈춘다",
+            "반복 검증 — 같은 케이스를 세 팀이 다시 본다",
+            "핸드오프 손실 — 맥락이 다음 단계로 안 넘어간다"
+          ]
+        }
+      ]
+    },
+    {
+      "slide_id": "s04",
+      "sequence": 4,
+      "role": "data",
+      "takeaway": "처리 시간의 38%는 반복 검증 단계에 집중되어 있다",
+      "title": "반복 검증이 처리 시간의 가장 큰 병목이다",
+      "source_labels": ["Source: 운영 로그 2026-07"],
+      "importance": "hero",
+      "speaker_notes": "38%는 파일럿 대상 워크플로 중앙값 기준임을 말로 보완한다.",
+      "content_blocks": [
+        {
+          "type": "metric_card",
+          "value": "38%",
+          "label": "반복 검증 비중",
+          "supporting_text": "파일럿 대상 워크플로 중앙값"
+        },
+        {
+          "type": "metric_card",
+          "value": "-22h",
+          "label": "주당 대기",
+          "supporting_text": "핸드오프 구간"
+        },
+        {
+          "type": "metric_card",
+          "value": "3팀",
+          "label": "영향 조직",
+          "supporting_text": "운영·품질·CS"
+        }
+      ]
+    },
+    {
+      "slide_id": "s05",
+      "sequence": 5,
+      "role": "comparison",
+      "takeaway": "내부 개발보다 관리형 도입이 파일럿 적합성이 높다",
+      "title": "파일럿은 관리형 도입이 내부 개발보다 적합하다",
+      "importance": "standard",
+      "speaker_notes": "장기 구축이 아니라 12주 검증 적합성을 비교 기준으로 고정한다.",
+      "content_blocks": [
+        {
+          "type": "comparison",
+          "columns": [
+            {"title": "내부 개발", "items": ["착수 8주+", "범위 확장 유혹", "회수 어려움"]},
+            {"title": "관리형 도입", "items": ["2주 내 착수", "범위 고정 쉬움", "게이트에서 중단 가능"]}
+          ]
+        }
+      ]
+    },
+    {
+      "slide_id": "s06",
+      "sequence": 6,
+      "role": "process",
+      "takeaway": "12주 계획은 3개의 되돌릴 수 있는 검증 게이트로 구성한다",
+      "title": "12주는 되돌릴 수 있는 3개 게이트로 나눈다",
+      "importance": "standard",
+      "speaker_notes": "각 게이트에서 중단 기준을 미리 합의하자고 요청한다.",
+      "content_blocks": [
+        {
+          "type": "process_steps",
+          "steps": [
+            {"label": "연동", "detail": "4주 안에 운영 API 1개를 붙이고 실패하면 중단한다"},
+            {"label": "파일럿", "detail": "4주 동안 워크플로 1개만 돌리며 범위를 고정한다"},
+            {"label": "판정", "detail": "4주 차에 계속/중단을 숫자 기준으로 결정한다"}
+          ]
+        }
+      ]
+    },
+    {
+      "slide_id": "s07",
+      "sequence": 7,
+      "role": "recommendation",
+      "takeaway": "성공은 품질·속도·비용의 사전 합의 지표로 판단한다",
+      "title": "성공은 품질·속도·비용의 사전 합의 지표로 본다",
+      "importance": "standard",
+      "speaker_notes": "지표를 오늘 합의하지 않으면 파일럿이 종료돼도 판정할 수 없다고 강조한다.",
+      "content_blocks": [
+        {
+          "type": "bullets",
+          "items": [
+            "품질 기준 — 착수 전에 허용 오류와 재작업 한도를 숫자로 잠근다",
+            "속도 기준 — 파일럿 워크플로의 처리 시간을 같은 식으로 잰다",
+            "비용 기준 — 12주 한도를 넘기면 게이트에서 중단한다"
+          ]
+        }
+      ]
+    },
+    {
+      "slide_id": "s08",
+      "sequence": 8,
+      "role": "summary",
+      "takeaway": "오늘 필요한 결정은 12주 파일럿 예산과 책임자 지정이다",
+      "title": "오늘 필요한 결정은 예산과 책임자 지정이다",
+      "importance": "hero",
+      "speaker_notes": "금액을 추측하지 말고, 책임자 이름과 예산 한도를 회의에서 적는다.",
+      "content_blocks": [
+        {
+          "type": "recommendation",
+          "action": "12주 파일럿 예산과 책임자를 지정한다",
+          "owner": "경영진이 한도와 책임자를 회의에 적는다",
+          "timing": "오늘 회의가 끝나기 전",
+          "success_metric": "책임자 이름과 예산 한도가 회의록에 남는다"
+        }
+      ]
+    }
+  ]
+}

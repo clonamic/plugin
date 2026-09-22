@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "checkpoint_unique_sample_threshold": 5,
+  "default_database_name": "style.sqlite3",
+  "data_home_environment": "CLONAMIC_DATA_HOME",
+  "source_role": "user",
+  "explicit_command": "/clonamic-my-language",
+  "profile_plugin_name": "clonamic-my-language-profile",
+  "profile_plugin_version": "0.1.0"
+}

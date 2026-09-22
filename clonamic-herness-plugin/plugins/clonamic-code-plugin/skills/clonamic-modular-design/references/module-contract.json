@@ -1,0 +1,24 @@
+{
+  "public_surface": "SKILL.md",
+  "input_fields": [
+    "goal",
+    "current_inventory",
+    "constraints",
+    "existing_conventions",
+    "approved_scope"
+  ],
+  "output": {
+    "type": "DesignResult",
+    "fields": [
+      "scale",
+      "pipeline",
+      "modules",
+      "contracts",
+      "decision_log",
+      "migration_order",
+      "verification"
+    ]
+  },
+  "failure_statuses": ["blocked_missing_evidence", "invalid_contract"],
+  "side_effect_policy": "Write one DESIGN.md only when the artifact is requested and inside approved_scope."
+}

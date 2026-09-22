@@ -1,0 +1,13 @@
+{
+  "preserve": ["facts", "quoted_text", "numbers", "identifiers", "code", "requested_structure"],
+  "check": [
+    "use only profile fields supported by evidence",
+    "prefer the dominant language profile for the current payload",
+    "remove phrasing unsupported by the profile",
+    "keep meaning more important than stylistic similarity"
+  ],
+  "result": {
+    "pass": "return the draft unchanged",
+    "revise": "return one corrected draft without commentary"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "clonamic-writing-plugin",
+  "version": "1.0.0",
+  "description": "Optional publication writing, Korean clarity, and deterministic final prose cleanup.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "writing",
+    "korean",
+    "clarity",
+    "publication"
+  ],
+  "skills": "./skills/"
+}

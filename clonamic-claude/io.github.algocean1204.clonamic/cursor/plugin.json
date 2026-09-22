@@ -1,0 +1,15 @@
+{
+  "name": "clonamic-claude",
+  "version": "1.0.0",
+  "description": "One bounded call through the installed Claude CLI.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "claude",
+    "executor",
+    "bounded-call"
+  ],
+  "skills": "./skills/"
+}

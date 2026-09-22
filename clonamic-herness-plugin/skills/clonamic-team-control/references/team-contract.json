@@ -1,0 +1,81 @@
+{
+  "public_surface": "SKILL.md",
+  "selection_phase": "prospective_before_execution",
+  "default": {
+    "intended_mode": "native",
+    "actual_team": false,
+    "execution": "direct",
+    "independent_review": false,
+    "disclose_limitation": false
+  },
+  "team_gate": "benefit_exceeds_coordination_cost",
+  "non_signals": [
+    "worker_defect",
+    "missing_evidence",
+    "false_completion"
+  ],
+  "negative_signals": [
+    "large_task",
+    "file_count",
+    "repetition",
+    "importance_label"
+  ],
+  "direct_worker": {
+    "session": "single",
+    "may_delegate": false
+  },
+  "modes": {
+    "native": {
+      "roles": ["main"]
+    },
+    "paired": {
+      "roles": ["worker", "independent_reviewer"],
+      "need_signal": "paired_review_needed",
+      "sequential_signals": ["tightly_coupled", "shared_file_collision"],
+      "final_verdict": {
+        "execution": "sequential_after_delivered_result_and_fresh_evidence",
+        "requires": ["delivered_result", "fresh_evidence"]
+      },
+      "parallel_pairs": {
+        "signal": "independent_pairs",
+        "minimum_pairs": 2,
+        "unit": "worker_reviewer_pair"
+      },
+      "shared_file_policy": {
+        "concurrent_workers": false,
+        "execution": "one_worker_then_reviewer"
+      }
+    },
+    "lead_workers": {
+      "topology": "main_to_lead_to_specialists",
+      "necessity_signal": "second_tier_necessary",
+      "minimum_specialists": 3,
+      "integration_owner": "one_assigned_specialist",
+      "collision_signal": "specialist_write_collision",
+      "collision_execution": "serialized_specialists",
+      "final_verdict_requires": ["all_specialist_results", "fresh_evidence"],
+      "lead": {
+        "actions": ["assign", "review", "accept", "reject", "reassign"],
+        "forbidden_actions": ["execute", "integrate"]
+      },
+      "worker": {
+        "session": "single",
+        "may_delegate": false
+      }
+    }
+  },
+  "capability_fallback": {
+    "signal": "native_subagents_available",
+    "requires_team_gate": true,
+    "intended_mode": "preserve_prospective_selection",
+    "actual_team": false,
+    "execution": "local_sequential_second_pass",
+    "independent_review": false,
+    "disclose_limitation": true,
+    "claim_team_created": false
+  },
+  "executor_policy": {
+    "auto_select_external": false,
+    "external_requires_explicit_user_request": true
+  }
+}

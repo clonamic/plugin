@@ -1,0 +1,45 @@
+{
+  "public_surface": "scripts/memory.py",
+  "schema_version": 1,
+  "operations": [
+    "record_source",
+    "store",
+    "recall",
+    "forget",
+    "link",
+    "graph",
+    "prune",
+    "backup",
+    "restore"
+  ],
+  "prompt_source_fields": [
+    "id",
+    "session_id",
+    "sequence",
+    "source_kind",
+    "body_sha256",
+    "body_bytes",
+    "expires_at"
+  ],
+  "memory_fields": [
+    "id",
+    "content",
+    "tags",
+    "created_at",
+    "updated_at",
+    "source_id",
+    "expires_at"
+  ],
+  "edge_fields": ["source", "target", "relation", "source_id", "expires_at"],
+  "source_kinds": ["user", "automation", "internal", "unverified"],
+  "graph_bounds": {"max_depth": 4, "max_nodes": 100},
+  "search": {"preferred": "fts5", "fallback": "bounded_lexical_scan"},
+  "sqlite": {
+    "journal_mode": "WAL",
+    "busy_timeout_ms": 5000,
+    "write_transaction": "BEGIN IMMEDIATE",
+    "file_mode": "0600"
+  },
+  "path_policy": "Every database, backup, and restore path is supplied by the caller; symbolic-link database paths are rejected.",
+  "distribution_state": "No SQLite database, WAL, or SHM file is distributed."
+}

@@ -1,0 +1,16 @@
+{
+  "name": "clonamic-design-plugin",
+  "version": "1.0.0",
+  "description": "Optional design, browser QA, visual systems, and media-art skills.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT AND Apache-2.0 AND CC-BY-4.0 AND LGPL-2.1-only",
+  "keywords": [
+    "design",
+    "frontend",
+    "figma",
+    "visual-qa"
+  ],
+  "skills": "./skills/"
+}

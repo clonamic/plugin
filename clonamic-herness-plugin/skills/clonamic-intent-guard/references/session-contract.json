@@ -1,0 +1,17 @@
+{
+  "format": "markdown_with_yaml_frontmatter",
+  "explicit_path_required": true,
+  "default_excerpt_bytes": 1024,
+  "maximum_excerpt_bytes": 2048,
+  "maximum_file_bytes": 2500,
+  "write": ["atomic_replace", "private_permissions", "reject_symlinks", "utf8_boundary_truncation"],
+  "read_modify_write": "owned_lock",
+  "session_id_mismatch": "reject",
+  "newest_external_order": "received_at",
+  "frontmatter": ["session_id", "active_prompt_id", "active_source", "active_authority", "last_user_prompt_id", "last_user_prompt_source", "last_user_prompt_label", "last_user_prompt_sha256", "last_user_prompt_received_at", "last_user_prompt_truncated", "automation_id", "automation_run_id", "scope_digest"],
+  "last_prompt_updates": ["trusted_user", "trusted_automation"],
+  "internal_update": "active_fields_only",
+  "trusted_automation_label": "[\"자동화\"]",
+  "authority_policy": "Display and recovery state only; never an authority source.",
+  "storage_policy": "Store one bounded excerpt and the full-body SHA-256, never another full prompt copy."
+}

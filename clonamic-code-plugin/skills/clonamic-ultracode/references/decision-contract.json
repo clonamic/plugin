@@ -1,0 +1,26 @@
+{
+  "public_surface": "SKILL.md",
+  "input_fields": [
+    "question",
+    "viable_options",
+    "repository_evidence",
+    "constraints",
+    "exclusions",
+    "review_budget",
+    "native_multi_agent_capability"
+  ],
+  "output": {
+    "type": "DecisionReview",
+    "fields": [
+      "status",
+      "recommendation",
+      "dissent",
+      "evidence_trail",
+      "unresolved_questions",
+      "budget_used"
+    ]
+  },
+  "failure_statuses": ["no_consensus", "aborted", "unavailable"],
+  "consensus_policy": "Only unanimous surviving positions produce a recommendation.",
+  "side_effect_policy": "Read-only; native isolated agents only."
+}

@@ -1,0 +1,21 @@
+{
+  "default": "native",
+  "stage_order": ["modular-design", "supercoder", "ultracode"],
+  "modular_design": {
+    "any": ["explicit_architecture", "new_system", "large_refactor"]
+  },
+  "supercoder": {
+    "all": ["approved_write", "non_trivial_code", "stale_or_ambiguous_patch_risk"]
+  },
+  "ultracode": {
+    "all": [
+      "multiple_viable_options",
+      "material_boundary_impact",
+      "evidence_cannot_resolve",
+      "wrong_choice_cost_exceeds_review"
+    ],
+    "capability": "native_multi_agent_capability",
+    "capability_failure": "unavailable"
+  },
+  "negative_signals": ["large_task", "file_count", "repetition", "importance_label"]
+}

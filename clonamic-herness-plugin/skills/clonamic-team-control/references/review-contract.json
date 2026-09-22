@@ -1,0 +1,30 @@
+{
+  "public_surface": "SKILL.md",
+  "verdicts": ["ACCEPT", "REJECT"],
+  "accept_requires": [
+    "all_required_results_present",
+    "fresh_evidence",
+    "intent_preserved"
+  ],
+  "reject_required_fields": [
+    "reasons",
+    "evidence",
+    "missing_requirements",
+    "rework_scope",
+    "reverification_conditions"
+  ],
+  "reject_fields_must_be_nonempty": true,
+  "invalid_reject_status": "INVALID_REJECT",
+  "rework": {
+    "scope": "Only rejected requirements and their direct dependencies.",
+    "reviewer": "same_reviewer",
+    "max_strategies": 3,
+    "materially_different": true,
+    "strategy_id_field": "failed_strategy_ids",
+    "count_by": "distinct_identity",
+    "identity_normalization": "trim",
+    "blank_identity_policy": "ignore",
+    "after_limit": "blocker"
+  },
+  "false_completion_policy": "Missing or stale required evidence always produces REJECT."
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clonamic Report"
+  short_description: "Report verified outcomes first with minimal token cost"
+  default_prompt: "Use $clonamic-report to report this verified result concisely."

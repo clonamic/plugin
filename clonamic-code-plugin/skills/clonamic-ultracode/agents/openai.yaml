@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic Ultracode"
+  short_description: "Review rare high-cost decisions independently"
+  default_prompt: "Use $clonamic-ultracode only if every high-cost decision gate passes."
+policy:
+  allow_implicit_invocation: false

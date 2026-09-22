@@ -1,0 +1,16 @@
+{
+  "purpose": "decide",
+  "audience": "경영진",
+  "audience_level": "executive",
+  "central_question": "12주 자동화 파일럿을 승인할 것인가?",
+  "desired_decision_or_action": "12주 파일럿 예산과 책임자 지정",
+  "single_sentence_thesis": "12주 파일럿으로 비용과 운영 리스크를 동시에 검증할 수 있다.",
+  "must_include": ["권고안", "성공 기준", "다음 의사결정"],
+  "must_avoid": ["근거 없는 시장 수치"],
+  "language": "ko-KR",
+  "slide_count_target": 8,
+  "time_limit_minutes": 10,
+  "evidence_mode": "best_effort",
+  "assumptions": ["수치는 내부 운영 로그 가정"],
+  "unanswered_questions": []
+}

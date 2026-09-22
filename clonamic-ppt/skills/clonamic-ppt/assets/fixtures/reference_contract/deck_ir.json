@@ -1,0 +1,62 @@
+{
+  "title": "Reference contract fixture",
+  "language": "en-US",
+  "slides": [
+    {
+      "slide_id": "ref-01",
+      "sequence": 1,
+      "background_color": "FFFFFF",
+      "elements": [
+        {
+          "element_id": "ref-01-title",
+          "kind": "text",
+          "bbox": {"x": 0.6, "y": 0.4, "w": 8.2, "h": 0.7},
+          "z_index": 20,
+          "text": "Evidence beats decoration & guesswork",
+          "style": {"font_family": "Aptos", "font_size_pt": 24, "color": "112233", "weight": 600}
+        },
+        {
+          "element_id": "ref-01-card",
+          "kind": "shape",
+          "bbox": {"x": 0.6, "y": 1.5, "w": 5.4, "h": 2.2},
+          "z_index": 10,
+          "shape_type": "round_rect",
+          "fill": {"color": "DDEEFF", "transparency": 0},
+          "stroke": {"color": "112233", "width_pt": 0.6}
+        }
+      ]
+    },
+    {
+      "slide_id": "ref-02",
+      "sequence": 2,
+      "background_color": "F7F8FA",
+      "elements": [
+        {
+          "element_id": "ref-02-title",
+          "kind": "text",
+          "bbox": {"x": 0.6, "y": 0.4, "w": 8.2, "h": 0.7},
+          "z_index": 20,
+          "text": "Measured density protects readability",
+          "style": {"font_family": "Aptos", "font_size_pt": 24, "color": "112233", "weight": 600}
+        },
+        {
+          "element_id": "ref-02-table",
+          "kind": "table",
+          "bbox": {"x": 0.6, "y": 1.5, "w": 5.5, "h": 2.4},
+          "z_index": 15,
+          "columns": ["Measure", "Result"],
+          "rows": [["Median", "28 words"], ["Maximum", "44 words"]]
+        },
+        {
+          "element_id": "ref-02-chart",
+          "kind": "chart",
+          "bbox": {"x": 6.5, "y": 1.5, "w": 5.9, "h": 3.2},
+          "z_index": 15,
+          "chart_type": "bar",
+          "categories": ["Low", "High"],
+          "series": [{"name": "Words", "values": [18, 52]}]
+        }
+      ]
+    }
+  ]
+}

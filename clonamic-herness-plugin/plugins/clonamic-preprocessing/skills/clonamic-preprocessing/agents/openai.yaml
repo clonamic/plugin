@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic Preprocessing"
+  short_description: "Normalize, clarify, queue, and loop explicitly"
+  default_prompt: "Use $clonamic-preprocessing to normalize and queue this multi-item request."
+policy:
+  allow_implicit_invocation: true

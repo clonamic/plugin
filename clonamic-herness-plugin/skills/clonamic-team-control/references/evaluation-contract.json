@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "measurement_source": "observed_host_events",
+  "fixture_metadata_proves_model_behavior": false,
+  "deterministic_contract_results_are_separate": true,
+  "blind_prompt_minimum": 20,
+  "goal_fields": [
+    "objective",
+    "baseline",
+    "target",
+    "guardrails",
+    "scenario_coverage",
+    "measurement_method"
+  ],
+  "evaluator_output_fields": [
+    "verdict",
+    "evidence",
+    "user_impact",
+    "regressions",
+    "feedback",
+    "next_experiment",
+    "strategy_id"
+  ],
+  "accept_requires": [
+    "observed_event_log",
+    "budget_pass",
+    "required_verification",
+    "no_guardrail_regression"
+  ],
+  "read_only_classes": [
+    "question",
+    "explanation",
+    "inspection",
+    "review",
+    "status",
+    "recommendation"
+  ],
+  "approval_budget": {
+    "read_only": 0,
+    "clear_write": 1,
+    "ambiguous_write": 2,
+    "approved_loop_additional": 0,
+    "automation": 0
+  },
+  "observed_fields": [
+    "specifications",
+    "approval_waits",
+    "conversational_stops",
+    "writes",
+    "reports",
+    "team_selection",
+    "team_disclosure",
+    "verification",
+    "rollback",
+    "failed_strategy_ids",
+    "automation_decisions",
+    "final_status"
+  ],
+  "duplicate_policy": {
+    "work_specification": "at_most_one",
+    "development_specification": "at_most_one",
+    "final_report": "exactly_one_when_nontrivial_work_reports"
+  },
+  "multiple_pending_policy": "reuse_existing_code",
+  "rework": {
+    "same_evaluator": true,
+    "materially_different": true,
+    "max_strategies": 3
+  },
+  "production_routing_bans": [
+    "fixture_id",
+    "expected_route",
+    "model_name",
+    "composite_score",
+    "prompt_keyword_threshold"
+  ]
+}

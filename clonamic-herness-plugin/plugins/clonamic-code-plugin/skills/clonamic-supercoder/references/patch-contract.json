@@ -1,0 +1,29 @@
+{
+  "public_surface": "SKILL.md",
+  "input_fields": [
+    "approved_scope",
+    "target_files",
+    "intended_change",
+    "fresh_file_evidence",
+    "host_capabilities"
+  ],
+  "output": {
+    "type": "CodeEvidence",
+    "fields": [
+      "status",
+      "files_changed",
+      "patch_results",
+      "checks_run",
+      "checks_unrun",
+      "residual_risks"
+    ]
+  },
+  "failure_statuses": [
+    "capability_missing",
+    "stale_file",
+    "ambiguous_match",
+    "syntax_rejected",
+    "verification_failed"
+  ],
+  "retry_policy": "Never resend an unchanged failed patch; re-read and narrow the edit before one new attempt."
+}

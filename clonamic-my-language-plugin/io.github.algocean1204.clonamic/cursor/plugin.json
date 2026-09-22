@@ -1,0 +1,17 @@
+{
+  "name": "clonamic-my-language-plugin",
+  "version": "0.1.0",
+  "description": "Explicit local prompt capture, observable style profiling, and portable profile export.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "language",
+    "style",
+    "sqlite",
+    "explicit",
+    "local"
+  ],
+  "skills": "./skills/"
+}

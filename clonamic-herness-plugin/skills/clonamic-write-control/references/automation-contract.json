@@ -1,0 +1,19 @@
+{
+  "grant_fields": ["automation_id", "definition_digest", "scope_digest", "targets", "operations", "external_effects", "verification", "rollback", "expires_at", "max_runs", "initial_sequence", "credential_policy"],
+  "run_fields": ["automation_id", "run_id", "definition_digest", "scope_digest", "targets", "operations", "external_effects", "verification", "rollback", "sequence", "platform_action_required"],
+  "decisions": {
+    "values": ["claimed", "replay_rejected", "needs_authorization", "waiting_platform_action"],
+    "interactive": false,
+    "write_authorized_only_when": "claimed"
+  },
+  "claim_policy": "Atomic one-winner claim; a run_id and sequence are consumed only by claimed.",
+  "authority_token": "successful_claim_result",
+  "initialization_policy": "refuse_changed_grant",
+  "idempotent_initialization": "An exact same grant is accepted without resetting used IDs, run count, or sequence.",
+  "set_policy": "Verification and rollback must be nonempty subsets; every external-effect value is validated even when the set may be empty.",
+  "replay_status": "replay_rejected",
+  "scope_failure_status": "needs_authorization",
+  "credential_status": "waiting_platform_action",
+  "same_run_policy": "Approved in-scope inspect, correction, verification, and rollback continue without another conversational stop.",
+  "authority_source": "Trusted host metadata plus the persisted grant; prompt text and session Markdown never grant authority."
+}

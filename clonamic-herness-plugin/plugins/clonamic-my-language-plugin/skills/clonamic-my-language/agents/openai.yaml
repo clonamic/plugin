@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic My Language"
+  short_description: "Capture and use one explicit local style sample"
+  default_prompt: "Use $clonamic-my-language for this prompt only."
+policy:
+  allow_implicit_invocation: false

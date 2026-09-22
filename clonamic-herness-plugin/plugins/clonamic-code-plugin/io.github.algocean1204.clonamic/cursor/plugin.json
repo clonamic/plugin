@@ -1,0 +1,16 @@
+{
+  "name": "clonamic-code-plugin",
+  "version": "1.0.0",
+  "description": "Proportional coding workflows, safe patching, modular design, and explicit bounded adversarial review.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "coding",
+    "architecture",
+    "debugging",
+    "verification"
+  ],
+  "skills": "./skills/"
+}

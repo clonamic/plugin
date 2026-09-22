@@ -1,0 +1,30 @@
+{
+  "name": "clonamic-my-language-plugin",
+  "version": "0.1.0",
+  "description": "Explicit local prompt capture, observable style profiling, and portable profile export.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "language",
+    "style",
+    "sqlite",
+    "explicit",
+    "local"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Clonamic My Language Plugin",
+    "shortDescription": "Explicit local prompt capture, observable style profiling, and portable profile export.",
+    "longDescription": "Explicit local prompt capture, observable style profiling, and portable profile export.",
+    "developerName": "Clonamic",
+    "category": "Personalization",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Use Clonamic My Language Plugin for this task."
+    ]
+  }
+}

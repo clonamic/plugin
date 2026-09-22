@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-code-plugin",
+  "version": "1.0.0",
+  "description": "Proportional coding workflows, safe patching, modular design, and explicit bounded adversarial review.",
+  "license": "MIT",
+  "author": {"name": "Clonamic"},
+  "keywords": ["coding", "architecture", "debugging", "verification"]
+}

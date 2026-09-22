@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-hermes",
+  "version": "1.0.0",
+  "description": "One bounded call through the installed Hermes CLI.",
+  "license": "MIT",
+  "author": {"name": "Clonamic"},
+  "keywords": ["hermes", "executor", "bounded-call"]
+}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic Supercoder"
+  short_description: "Harden risky patches with fresh evidence"
+  default_prompt: "Use $clonamic-supercoder for this approved non-trivial code change."
+policy:
+  allow_implicit_invocation: false

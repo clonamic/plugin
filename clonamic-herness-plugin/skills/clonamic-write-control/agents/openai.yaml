@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clonamic Write Control"
+  short_description: "Approve persistent writes once, then run the full loop"
+  default_prompt: "Use $clonamic-write-control before applying this persistent change."
