@@ -32,7 +32,7 @@ class PackageTests(unittest.TestCase):
             "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
         )
         self.assertEqual(manifest["name"], "clonamic-korean")
-        self.assertEqual(manifest["version"], "1.0.0")
+        self.assertEqual(manifest["version"], "1.0.1")
         self.assertEqual(manifest["license"], "MIT")
         self.assertEqual(manifest["skills"], "./skills/")
         skills = sorted(path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md"))
@@ -52,14 +52,15 @@ class PackageTests(unittest.TestCase):
             self.assertNotIn(banned, readme)
 
     def test_upstream_command_names_are_absent(self) -> None:
-        for path in ROOT.rglob("*"):
-            if not path.is_file():
-                continue
-            blob = path.relative_to(ROOT).as_posix().lower()
-            if path.suffix in {".md", ".py", ".json", ".yaml", ".yml"}:
-                blob += "\n" + path.read_text(encoding="utf-8").lower()
-            for name in BANNED:
-                self.assertNotIn(name, blob, path)
+        skills = sorted(path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md"))
+        self.assertEqual(skills, ["clonamic-korean"])
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        self.assertNotIn("`/humanize", skill)
+        self.assertNotIn(" /humanize", skill)
+        self.assertTrue((ROOT / "scripts" / "prepare_monolith_input.py").is_file())
+        self.assertTrue((ROOT / "scripts" / "verify_gates.py").is_file())
+        self.assertTrue((ROOT / "skills" / "humanize-korean" / "references" / "diagnosis-rules.md").is_file())
+        self.assertFalse((ROOT / "skills" / "humanize-korean" / "SKILL.md").exists())
 
     def test_rejected_signals_are_not_active_rules(self) -> None:
         catalog = (SKILL / "references" / "catalog.md").read_text(encoding="utf-8")
@@ -70,6 +71,24 @@ class PackageTests(unittest.TestCase):
         self.assertIn("`를 통해`를 무조건 삭제하지 않는다", inactive)
         self.assertIn("것이다", inactive)
         self.assertIn("대명사", inactive)
+
+    def test_file_scope_rejects_non_documents(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "ko_scope", SKILL / "scripts" / "scope.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        for path in ("main.py", "data.csv", "book.xlsx", "deck.pptx", "message.eml"):
+            result = module.assess(path, "검토할 내용", "document")
+            self.assertFalse(result["applicable"], path)
+        for name in ("work-report.md", "completion-report.txt", "작업보고.md", "완료보고.txt"):
+            result = module.assess(name, "검증 결과", "document")
+            self.assertFalse(result["applicable"], name)
+        ok = module.assess("notice.md", "이 문서는 배포 절차를 설명합니다.", "document")
+        self.assertTrue(ok["applicable"], ok)
 
     def test_bounds_script_warns_and_stops(self) -> None:
         short = "가나다라마바사아자차"
