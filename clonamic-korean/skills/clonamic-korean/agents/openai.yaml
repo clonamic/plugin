@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic Korean"
+  short_description: "Revise Korean prose on an explicit command"
+  default_prompt: "Use $clonamic-korean on this Korean text."
+policy:
+  allow_implicit_invocation: false

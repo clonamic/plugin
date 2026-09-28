@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-korean",
+  "version": "1.0.0",
+  "description": "Explicit Korean prose revision that keeps facts fixed and removes translated rhythm.",
+  "license": "MIT",
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "korean",
+    "prose",
+    "revision"
+  ],
+  "skills": "./skills/"
+}

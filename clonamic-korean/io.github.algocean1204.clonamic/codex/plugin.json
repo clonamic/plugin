@@ -1,0 +1,28 @@
+{
+  "name": "clonamic-korean",
+  "version": "1.0.0",
+  "description": "Explicit Korean prose revision that keeps facts fixed and removes translated rhythm.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "korean",
+    "prose",
+    "revision"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Clonamic Korean",
+    "shortDescription": "Explicit Korean prose revision that keeps facts fixed.",
+    "longDescription": "One command revises Korean prose. The model chooses the depth. Facts, names, numbers, and quotations stay.",
+    "developerName": "Clonamic",
+    "category": "Writing",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Use Clonamic Korean for this Korean text."
+    ]
+  }
+}

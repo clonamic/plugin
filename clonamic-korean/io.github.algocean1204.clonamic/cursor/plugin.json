@@ -1,0 +1,15 @@
+{
+  "name": "clonamic-korean",
+  "version": "1.0.0",
+  "description": "Explicit Korean prose revision that keeps facts fixed and removes translated rhythm.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "korean",
+    "prose",
+    "revision"
+  ],
+  "skills": "./skills/"
+}
