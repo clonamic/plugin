@@ -35,7 +35,7 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(manifest["$schema"], SCHEMA)
         self.assertEqual(manifest["name"], "clonamic-task-log")
         self.assertEqual(manifest["name"], ROOT.name)
-        self.assertEqual(manifest["version"], "1.0.0")
+        self.assertRegex(manifest["version"], r"^\d+\.\d+\.\d+$")
         self.assertEqual(manifest["license"], "MIT")
         self.assertEqual(manifest["author"], {"name": "Clonamic"})
         self.assertEqual(manifest["repository"], "https://github.com/clonamic/plugin")

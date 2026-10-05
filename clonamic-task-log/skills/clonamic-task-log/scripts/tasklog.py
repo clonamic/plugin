@@ -11,6 +11,7 @@
   portfolio        roll-up data for the portfolio summary
   write-portfolio  gate (portfolio kind), then write portfolio.md
   rebind           accept that this same project (same remote) moved to a new root path
+  save             write profile.md / notion.md / notion-template.md from stdin into log-part
 
 Every command resolves the project from --repo (default: the working directory) and touches
 only <project>/<agent-dir>/log-part. Exit 3 = usage or environment error.
@@ -222,6 +223,27 @@ def cmd_rebind(args) -> int:
     return emit({"ok": True, "status": "rebound", "root": current["root"]})
 
 
+SAVE_NAMES = ("profile.md", "notion.md", "notion-template.md")
+
+
+def cmd_save(args) -> int:
+    """Write a setup file from stdin into log-part, so hosts that guard their agent folder need only this command."""
+    from common import log_dir, repo_root
+
+    start = Path(args.repo)
+    if not git_ok(start, "rev-parse", "--show-toplevel"):
+        raise TaskLogError("not inside a git repository", "기록할 프로젝트 폴더 안에서 실행하세요.")
+    if args.name not in SAVE_NAMES:
+        raise TaskLogError(f"save accepts only {', '.join(SAVE_NAMES)}", "기록 본문은 write로 저장하세요.")
+    text = sys.stdin.read()
+    if not text.strip():
+        raise TaskLogError("empty input", "저장할 내용을 표준 입력으로 넘기세요.")
+    logs = log_dir(repo_root(start), args.agent_dir)
+    logs.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(logs / args.name, text.rstrip() + "\n")
+    return emit({"ok": True, "status": "saved", "file": str(logs / args.name)})
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="tasklog.py", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -257,6 +279,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--entry", required=True)
     p.set_defaults(func=cmd_write_portfolio)
     sub.add_parser("rebind").set_defaults(func=cmd_rebind)
+    p = sub.add_parser("save")
+    p.add_argument("--name", required=True, choices=SAVE_NAMES)
+    p.set_defaults(func=cmd_save)
     args = parser.parse_args(argv)
     try:
         return args.func(args)

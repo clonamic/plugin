@@ -439,3 +439,30 @@ class PreflightTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SaveCommandTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.base = Path(tempfile.mkdtemp(dir=_TMP.name))
+
+    def _save(self, repo: Path, name: str, text: str) -> tuple[int, dict]:
+        proc = subprocess.run([sys.executable, str(TASKLOG), "--repo", str(repo), "--agent-dir", ".claude",
+                               "save", "--name", name], input=text, capture_output=True, text=True,
+                              env=GIT_ENV | {"PYTHONDONTWRITEBYTECODE": "1"})
+        return proc.returncode, json.loads(proc.stdout) if proc.stdout.strip() else {}
+
+    def test_save_writes_setup_files_into_log_part(self) -> None:
+        repo = Repo(self.base, "saver")
+        code, out = self._save(repo.path, "notion.md", "# Notion\n- 루트 — 작업로그\n")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((repo.path / ".claude/log-part/notion.md").read_text(encoding="utf-8"),
+                         "# Notion\n- 루트 — 작업로그\n")
+
+    def test_save_rejects_other_names_and_empty_input(self) -> None:
+        repo = Repo(self.base, "saver2")
+        proc = subprocess.run([sys.executable, str(TASKLOG), "--repo", str(repo.path), "save", "--name", "state.json"],
+                              input="{}", capture_output=True, text=True, env=GIT_ENV)
+        self.assertNotEqual(proc.returncode, 0)
+        code, out = self._save(repo.path, "profile.md", "   \n")
+        self.assertEqual(code, 3)
+        self.assertFalse((repo.path / ".claude/log-part/profile.md").exists())

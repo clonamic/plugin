@@ -39,7 +39,7 @@ user-invocable: true
 
 1. `preflight`를 실행한다. `ok`가 false면 실패한 항목의 `fix`를 그대로 사용자에게 보여 주고 멈춘다. `.gitignore`나 `.git/info/exclude`를 대신 고치지 않는다.
 2. Notion MCP 도구(검색, 조회, 페이지 생성, 페이지 수정)가 내 도구 목록에 있는지 직접 확인한다. 스크립트는 이것을 알 수 없다. 없으면 멈추지 않는다. 로컬 기록까지 하고 Notion은 보고서에 `승인 시 진행`으로 남긴다.
-3. `first_run`이 true면 [setup](references/setup.md)대로 한 메시지로 묻고, 답을 받아 profile.md·notion.md·notion-template.md를 만들고 Notion 페이지를 만든다. 답을 기다리는 동안 다음 단계로 가지 않는다.
+3. `first_run`이 true면 [setup](references/setup.md)대로 한 메시지로 묻고, 답을 받아 profile.md·notion.md·notion-template.md를 만들고 Notion 페이지를 만든다. 이 세 파일은 `tasklog.py save --name <파일> < 내용`으로만 저장한다(호스트가 에이전트 폴더 직접 쓰기를 막아도 이 명령 하나로 된다). log-part 안의 다른 파일은 `write`·`notion-set`이 만든다. 에이전트 폴더에 파일을 직접 쓰지 않는다. 답을 기다리는 동안 다음 단계로 가지 않는다.
 
 ## 3. 수집과 익명화
 
