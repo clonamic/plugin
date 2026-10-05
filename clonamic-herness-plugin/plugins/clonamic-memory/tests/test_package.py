@@ -650,7 +650,7 @@ class MemoryPackageTest(unittest.TestCase):
             "creden" + "tials",
         )
         for path in self.package.rglob("*"):
-            if not path.is_file() or "tests" in path.parts:
+            if not path.is_file() or "tests" in path.parts or "__pycache__" in path.parts:
                 continue
             text = path.read_text(encoding="utf-8").casefold()
             for token in forbidden:

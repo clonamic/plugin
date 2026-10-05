@@ -4,6 +4,12 @@
   "version": "1.0.0",
   "description": "Optional dataset and Hugging Face workflow guidance.",
   "license": "MIT",
-  "author": {"name": "Clonamic"},
-  "keywords": ["datasets", "hugging-face", "training-data"]
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "datasets",
+    "hugging-face",
+    "training-data"
+  ]
 }

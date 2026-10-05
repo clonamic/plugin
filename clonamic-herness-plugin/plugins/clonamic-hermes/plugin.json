@@ -4,6 +4,12 @@
   "version": "1.0.0",
   "description": "One bounded call through the installed Hermes CLI.",
   "license": "MIT",
-  "author": {"name": "Clonamic"},
-  "keywords": ["hermes", "executor", "bounded-call"]
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "hermes",
+    "executor",
+    "bounded-call"
+  ]
 }

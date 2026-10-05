@@ -1,4 +1,5 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clonamic-preprocessing",
   "version": "1.0.0",
   "description": "Deterministic input normalization, clarification packets, priority queues, and explicit loop_auto.",
@@ -11,6 +12,5 @@
     "clarification",
     "queue",
     "loop-auto"
-  ],
-  "skills": "./skills/"
+  ]
 }

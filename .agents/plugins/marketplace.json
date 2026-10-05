@@ -1,0 +1,176 @@
+{
+  "name": "clonamic",
+  "interface": {
+    "displayName": "Clonamic"
+  },
+  "plugins": [
+    {
+      "name": "clonamic-claude",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-claude"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Executor"
+    },
+    {
+      "name": "clonamic-code-plugin",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-code-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "clonamic-data-plugin",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-data-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Data"
+    },
+    {
+      "name": "clonamic-design-plugin",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-design-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Design"
+    },
+    {
+      "name": "clonamic-documents-plugin",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-documents-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Documents"
+    },
+    {
+      "name": "clonamic-grok",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-grok"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Executor"
+    },
+    {
+      "name": "clonamic-hermes",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-hermes"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Executor"
+    },
+    {
+      "name": "clonamic-herness-plugin",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-herness-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "clonamic-korean",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-korean"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Writing"
+    },
+    {
+      "name": "clonamic-memory",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-memory"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Memory"
+    },
+    {
+      "name": "clonamic-my-language-plugin",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-my-language-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Personalization"
+    },
+    {
+      "name": "clonamic-ppt",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-ppt"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Presentation"
+    },
+    {
+      "name": "clonamic-preprocessing",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-preprocessing"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Workflow"
+    },
+    {
+      "name": "clonamic-writing-plugin",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-writing-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Writing"
+    }
+  ]
+}

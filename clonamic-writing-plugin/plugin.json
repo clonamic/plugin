@@ -1,4 +1,5 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clonamic-writing-plugin",
   "version": "1.0.1",
   "description": "Optional publication writing and deterministic final prose cleanup.",
@@ -11,7 +12,5 @@
     "korean",
     "clarity",
     "publication"
-  ],
-  "skills": "./skills/",
-  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+  ]
 }

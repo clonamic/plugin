@@ -4,6 +4,12 @@
   "version": "1.0.0",
   "description": "Optional HWPX and document-specialist workflows.",
   "license": "MIT",
-  "author": {"name": "Clonamic"},
-  "keywords": ["documents", "hwpx", "hancom"]
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "documents",
+    "hwpx",
+    "hancom"
+  ]
 }

@@ -84,6 +84,7 @@ class DevelopmentPackageTest(unittest.TestCase):
             if (
                 not path.is_file()
                 or "tests" in path.parts
+                or "__pycache__" in path.parts
                 or path.name == "THIRD_PARTY_NOTICES.md"
             ):
                 continue

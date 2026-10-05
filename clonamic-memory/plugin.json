@@ -1,4 +1,5 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clonamic-memory",
   "version": "1.0.0",
   "description": "Explicit local store, recall, forget, link, and bounded graph operations.",
@@ -11,6 +12,5 @@
     "recall",
     "forget",
     "graph"
-  ],
-  "skills": "./skills/"
+  ]
 }

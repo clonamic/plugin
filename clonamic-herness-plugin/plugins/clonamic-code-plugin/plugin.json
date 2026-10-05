@@ -4,6 +4,13 @@
   "version": "1.0.0",
   "description": "Proportional coding workflows, safe patching, modular design, and explicit bounded adversarial review.",
   "license": "MIT",
-  "author": {"name": "Clonamic"},
-  "keywords": ["coding", "architecture", "debugging", "verification"]
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "coding",
+    "architecture",
+    "debugging",
+    "verification"
+  ]
 }

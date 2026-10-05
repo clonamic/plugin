@@ -1,4 +1,5 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clonamic-ppt",
   "version": "1.0.0",
   "description": "Create editable widescreen presentations through a deterministic layout and QA engine.",
@@ -12,6 +13,5 @@
     "slides",
     "layout",
     "qa"
-  ],
-  "skills": "./skills/"
+  ]
 }

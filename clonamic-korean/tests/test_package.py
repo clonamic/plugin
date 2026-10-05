@@ -34,7 +34,7 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(manifest["name"], "clonamic-korean")
         self.assertEqual(manifest["version"], "1.0.1")
         self.assertEqual(manifest["license"], "MIT")
-        self.assertEqual(manifest["skills"], "./skills/")
+        self.assertNotIn("skills", manifest)
         skills = sorted(path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md"))
         self.assertEqual(skills, ["clonamic-korean"])
         skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")

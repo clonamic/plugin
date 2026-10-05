@@ -1,4 +1,5 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clonamic-claude",
   "version": "1.0.0",
   "description": "One bounded call through the installed Claude CLI.",
@@ -10,6 +11,5 @@
     "claude",
     "executor",
     "bounded-call"
-  ],
-  "skills": "./skills/"
+  ]
 }

@@ -1,16 +1,16 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clonamic-harness-admin-plugin",
   "version": "0.1.0",
   "description": "Private Clonamic configuration, model registry, factory, and backup procedures.",
-  "license": "MIT",
   "author": {
     "name": "Clonamic"
   },
+  "license": "MIT",
   "keywords": [
     "clonamic",
     "configuration",
     "backup",
     "administration"
-  ]
+  ],
+  "skills": "./skills/"
 }

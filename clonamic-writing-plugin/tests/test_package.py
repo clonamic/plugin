@@ -27,7 +27,7 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(manifest["name"], PLUGIN)
         self.assertEqual(manifest["version"], "1.0.1")
         self.assertEqual(manifest["license"], "MIT")
-        self.assertEqual(manifest["skills"], "./skills/")
+        self.assertNotIn("skills", manifest)
         found = sorted(path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md"))
         self.assertEqual(found, SKILLS)
         self.assertFalse((ROOT / "skills" / "clonamic-korean").exists())

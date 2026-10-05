@@ -1,4 +1,5 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clonamic-data-plugin",
   "version": "1.0.0",
   "description": "Optional dataset and Hugging Face workflow guidance.",
@@ -10,6 +11,5 @@
     "datasets",
     "hugging-face",
     "training-data"
-  ],
-  "skills": "./skills/"
+  ]
 }

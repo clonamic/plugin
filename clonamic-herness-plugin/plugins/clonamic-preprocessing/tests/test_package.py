@@ -239,7 +239,7 @@ class PreprocessingPackageTest(unittest.TestCase):
             "led" + "ger",
         )
         for path in self.root.rglob("*"):
-            if not path.is_file() or "tests" in path.parts:
+            if not path.is_file() or "tests" in path.parts or "__pycache__" in path.parts:
                 continue
             text = path.read_text(encoding="utf-8").casefold()
             for token in forbidden:
