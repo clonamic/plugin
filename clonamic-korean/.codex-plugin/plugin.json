@@ -1,10 +1,11 @@
 {
   "name": "clonamic-korean",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Write and revise natural Korean documents (resumes, portfolios, reports, posts, docs) with one explicit /clonamic-korean command that keeps facts, numbers, quotes, and the author's voice fixed.",
   "author": {
     "name": "Clonamic"
   },
+  "repository": "https://github.com/clonamic/plugin",
   "license": "MIT",
   "keywords": [
     "korean",

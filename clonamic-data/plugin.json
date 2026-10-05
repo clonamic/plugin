@@ -11,5 +11,6 @@
     "datasets",
     "hugging-face",
     "training-data"
-  ]
+  ],
+  "repository": "https://github.com/clonamic/plugin"
 }

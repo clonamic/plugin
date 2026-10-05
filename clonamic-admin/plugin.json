@@ -12,5 +12,6 @@
     "configuration",
     "backup",
     "administration"
-  ]
+  ],
+  "repository": "https://github.com/clonamic/plugin"
 }

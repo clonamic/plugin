@@ -5,6 +5,7 @@
   "author": {
     "name": "Clonamic"
   },
+  "repository": "https://github.com/clonamic/plugin",
   "license": "MIT",
   "keywords": [
     "datasets",

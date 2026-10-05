@@ -19,7 +19,7 @@ class CodePackageTest(unittest.TestCase):
         manifest = json.loads((ROOT / "plugin.json").read_text(encoding="utf-8"))
         self.assertEqual("https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", manifest["$schema"])
         self.assertEqual(
-            {"$schema", "name", "version", "description", "license", "author", "keywords"},
+            {"$schema", "name", "version", "description", "license", "author", "keywords", "repository"},
             set(manifest),
         )
         self.assertEqual("clonamic-code", manifest["name"])
@@ -67,7 +67,6 @@ class CodePackageTest(unittest.TestCase):
                 or "tests" in path.parts
                 or "__pycache__" in path.parts
                 or path.parts[len(ROOT.parts)].startswith(".")
-                or path.name == "THIRD_PARTY_NOTICES.md"
             ):
                 continue
             text = path.read_text(encoding="utf-8").casefold()

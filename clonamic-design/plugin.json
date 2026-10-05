@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-design",
+  "version": "2.0.0",
+  "description": "UI design direction, UI review, real-browser QA, visual art, and hand-drawn diagrams that run on the host's own tools.",
+  "license": "MIT",
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "design",
+    "ui",
+    "accessibility",
+    "visual-qa",
+    "generative-art"
+  ],
+  "repository": "https://github.com/clonamic/plugin"
+}

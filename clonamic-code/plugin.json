@@ -12,5 +12,6 @@
     "architecture",
     "debugging",
     "verification"
-  ]
+  ],
+  "repository": "https://github.com/clonamic/plugin"
 }

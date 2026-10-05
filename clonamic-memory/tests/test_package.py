@@ -14,7 +14,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
-MANIFEST_FIELDS = {"$schema", "name", "version", "description", "license", "author", "keywords"}
+MANIFEST_FIELDS = {"$schema", "name", "version", "description", "license", "author", "keywords", "repository"}
 
 
 def load_runtime(root):

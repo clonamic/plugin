@@ -29,10 +29,10 @@
       "category": "Data"
     },
     {
-      "name": "clonamic-design-plugin",
+      "name": "clonamic-design",
       "source": {
         "source": "local",
-        "path": "./clonamic-design-plugin"
+        "path": "./clonamic-design"
       },
       "policy": {
         "installation": "AVAILABLE",

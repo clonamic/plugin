@@ -14,6 +14,7 @@ REFERENCES = {
     "ai-tells.md",
     "field-lessons.md",
     "genres.md",
+    "norms.md",
     "openings.md",
     "plain-korean.md",
     "preserve.md",
@@ -51,27 +52,25 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(manifest["$schema"], SCHEMA)
         self.assertEqual(manifest["name"], "clonamic-korean")
         self.assertEqual(manifest["name"], ROOT.name)
-        self.assertEqual(manifest["version"], "2.0.0")
+        self.assertEqual(manifest["version"], "2.1.0")
+        self.assertEqual(manifest["repository"], "https://github.com/clonamic/plugin")
+        self.assertNotIn("homepage", manifest)
         self.assertEqual(manifest["license"], "MIT")
         self.assertEqual(manifest["author"], {"name": "Clonamic"})
         self.assertIn("/clonamic-korean", manifest["description"])
         for word in ("resume", "portfolio", "report"):
             self.assertIn(word, manifest["description"].lower())
 
-    def test_license_and_notices_travel_with_the_skill(self) -> None:
-        root_license = (ROOT / "LICENSE").read_text(encoding="utf-8")
-        skill_license = (SKILL / "LICENSE").read_text(encoding="utf-8")
-        self.assertEqual(root_license, skill_license)
-        for holder in ("epoko77-ai", "Artem Novitckii", "Clonamic"):
-            self.assertIn(f"Copyright (c) 2026 {holder}", skill_license)
-        self.assertIn("Permission is hereby granted", skill_license)
-        notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
-        for upstream in ("dumbify", "storytelling", "viral-hooks", "voice-dna", "anti-ai-writing", "humanize-korean"):
-            self.assertIn(upstream, notices)
-        for adapted in ("plain-korean.md", "story.md", "openings.md", "voice.md"):
-            text = (SKILL / "references" / adapted).read_text(encoding="utf-8")
-            self.assertIn("artemnovitckii/content-skills", text, adapted)
-            self.assertIn("(../LICENSE)", text, adapted)
+    def test_single_mit_license_without_third_party_attribution(self) -> None:
+        license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
+        self.assertIn("Permission is hereby granted", license_text)
+        self.assertEqual(re.findall(r"^Copyright .*$", license_text, re.MULTILINE), ["Copyright (c) 2026 Clonamic"])
+        for gone in ("THIRD_PARTY_NOTICES.md", "NOTICE", "skills/clonamic-korean/LICENSE"):
+            self.assertFalse((ROOT / gone).exists(), gone)
+        banned = re.compile(r"epoko77|novitckii|content-skills|im-not-ai|humanize-korean|unslop|adapted from|fork of|inspired by", re.I)
+        for path in ROOT.rglob("*"):
+            if path.is_file() and "tests" not in path.parts and path.suffix in {".md", ".py", ".json", ".yaml"}:
+                self.assertIsNone(banned.search(path.read_text(encoding="utf-8")), path)
 
 
 class StructureTests(unittest.TestCase):
@@ -129,7 +128,7 @@ class SkillTests(unittest.TestCase):
         self.assertLessEqual(REFERENCES, skill_links)
 
     def test_modes_are_selected_by_natural_language(self) -> None:
-        for phrase in ("가볍게", "깊게", "진단만", "써줘", "내 문체로", "쉽게", "이야기처럼", "첫 문장"):
+        for phrase in ("가볍게", "깊게", "진단만", "써줘", "내 문체로", "쉽게", "이야기처럼", "첫 문장", "맞춤법"):
             self.assertIn(phrase, self.body)
 
     def test_quality_bar_carries_field_lessons(self) -> None:

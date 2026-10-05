@@ -1,12 +1,11 @@
 {
   "name": "clonamic-harness",
-  "version": "2.0.0",
-  "description": "Stage-by-stage working discipline for AI coding agents: read the request exactly, gate persistent changes behind Korean 작업명세서/개발명세서 approvals, add agents only when they pay off, and finish with fresh-evidence verification and an outcome-first 보고서.",
+  "version": "2.1.0",
+  "description": "Stage-by-stage working discipline for AI coding agents: read the request exactly, gate persistent changes behind at most two Korean approvals (작업명세서 only while intent is unsynced, then 개발명세서), add agents such as an independent reviewer only when they pay off, and finish with fresh-evidence verification and an outcome-first 보고서.",
   "author": {
     "name": "Clonamic"
   },
-  "homepage": "https://github.com/algocean1204/clonamic-herness-plugin",
-  "repository": "https://github.com/algocean1204/clonamic-herness-plugin",
+  "repository": "https://github.com/clonamic/plugin",
   "license": "MIT",
   "keywords": [
     "ai-harness",
@@ -14,7 +13,8 @@
     "intake",
     "approval",
     "verification",
-    "report"
+    "report",
+    "subagent"
   ],
   "skills": "./skills/"
 }

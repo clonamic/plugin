@@ -14,5 +14,6 @@
     "grok",
     "hermes",
     "bounded-call"
-  ]
+  ],
+  "repository": "https://github.com/clonamic/plugin"
 }

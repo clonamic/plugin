@@ -2,36 +2,52 @@
 """Compare a Korean source text with its revision and flag what a reviser must not change.
 
 Deterministic, stdlib only, Python >= 3.12. It does not judge style. It checks the
-failure modes that models reliably miss in their own output:
+failure modes models reliably miss in their own output.
 
-violations (exit 2: do not ship the revision)
-    empty_output       revision is blank
-    number_injected    a numeric value appears that the source never had
-    quote_altered      a direct quote with a speech/attribution marker is no longer verbatim
-    code_altered       a fenced code block is no longer verbatim
-    over_revised       character change rate >= 50% (warning instead with --deep)
+Revision mode (--before and --after)
 
-warnings (exit 1: check each item before shipping)
-    change_rate        character change rate >= 30%
-    number_dropped     a numeric value from the source disappeared
-    term_dropped       a Latin-script name/term from the source disappeared
-    term_added         a new Latin-script word appeared (Konglish headings, "Deep Dive")
-    inline_code_dropped an inline `code` span disappeared
-    modality_lost      fewer obligation/hedge markers than the source
-    register_shift     dominant sentence ending changed, or '하였' increased
-    hype_added         absolute/hype wording increased ("100%", "원천 차단", "격상")
-    loanword_added     business loanwords increased ("임팩트", "어필", "딥다이브")
-    cliche_added       boilerplate increased ("시사하는 바가 크다", "로 평가된다")
-    nominal_added      nominalized translationese increased ("로 인한", "현상이 발생")
-    observer_added     observer/hearsay voice increased ("~로 적혀 있습니다")
-    format_added       bold, emoji, or numbered items increased
-    heading_changed    a markdown heading was removed or added
-    contrast_wiped     5+ contrast parallels in the source, none left
+  violations (exit 2: do not ship)
+    empty_output         revision is blank
+    number_injected      the revision contains a value absent from the source
+    quote_altered        a quote attributed to a speaker was edited
+    code_altered         a fenced code block is no longer verbatim
+    placeholder_altered  a template placeholder or HTML tag from the source is gone
+    link_injected        a URL or link target the source never had
+    over_revised         character change rate >= 50% (warning instead with --deep)
+    length_over          longer than --limit
+
+  warnings (exit 1: check each item)
+    change_rate          character change rate >= 30%
+    number_dropped       a numeric value from the source disappeared
+    term_dropped         a Latin-script name/term from the source disappeared
+    term_added           a new Latin-script word appeared
+    inline_code_dropped  an inline `code` span disappeared
+    link_dropped         a URL or link target from the source disappeared
+    placeholder_added    a new placeholder or HTML tag appeared
+    modality_lost        fewer obligation or hedge markers than the source
+    register_shift       dominant sentence ending changed, or '하였' increased
+    hype_added           absolute or hype wording increased
+    loanword_added       business loanwords increased
+    cliche_added         boilerplate increased
+    nominal_added        verb-to-noun chains increased
+    translationese_added calqued particles, double passives, needless causatives increased
+    observer_added       observer/hearsay voice about the author's own work increased
+    unsourced_added      unsourced consensus or coined-concept framing increased
+    spelling             an unambiguous misspelling (or -실게요) is present in the result
+    format_added         bold, emoji, or numbered items increased
+    heading_changed      a markdown heading was removed or added
+    contrast_wiped       5+ contrast parallels in the source, none left
+
+Draft mode (--after only): empty_output, length_over, spelling, and the wording
+lists above counted as plain presence.
+
+Every run reports the character count with and without whitespace.
 
 Exit codes: 0 pass, 1 warnings, 2 violations, 3 input error.
 
 Usage:
-    python3 check_revision.py --before source.txt --after revised.txt [--deep] [--json]
+    python3 check_revision.py --before source.txt --after revised.txt [--deep] [--limit N] [--json]
+    python3 check_revision.py --after draft.txt [--limit N [--no-spaces]] [--json]
 """
 
 from __future__ import annotations
@@ -64,349 +80,426 @@ class Finding:
     detail: str
 
 
-# --------------------------------------------------------------------------- text prep
+# ----------------------------------------------------------------------------- text prep
 
-_FENCE_RE = re.compile(r"^```.*?^```[ \t]*$", re.MULTILINE | re.DOTALL)
-_LIST_MARKER_RE = re.compile(r"^(\s*(?:#{1,6}\s*)?)\d+(?:\.\d+)*[.)]\s", re.MULTILINE)
-_NUM_TOKEN = re.compile(r"\d+(?:[.,]\d+)*")
-_KO_UNIT = {"백": 100, "천": 1_000, "만": 10_000, "억": 100_000_000, "조": 1_000_000_000_000}
+FENCE = re.compile(r"^```.*?^```[ \t]*$", re.MULTILINE | re.DOTALL)
+INLINE_CODE = re.compile(r"`([^`\n]+)`")
 
 
 def normalize(text: str) -> str:
-    text = unicodedata.normalize("NFC", text)
-    text = text.replace("\r\n", "\n").replace("\u00a0", " ")
-    return re.sub(r"[\u200b\u200c\u200d\u2060\ufeff]", "", text)
+    text = unicodedata.normalize("NFC", text).replace("\r\n", "\n").replace(" ", " ")
+    return re.sub("[​-‍⁠﻿]", "", text)
 
 
-def fenced_blocks(text: str) -> list[str]:
-    return _FENCE_RE.findall(text)
+def prose(text: str) -> str:
+    """Text with fenced blocks and inline code removed."""
+    return INLINE_CODE.sub(" ", FENCE.sub("", text))
 
 
-def without_fences(text: str) -> str:
-    return _FENCE_RE.sub("", text)
+def char_counts(text: str) -> tuple[int, int]:
+    """(with whitespace, without whitespace). Leading/trailing blank space is ignored."""
+    body = text.strip()
+    return len(body), sum(1 for ch in body if not ch.isspace())
 
 
-# --------------------------------------------------------------------------- change rate
+# ----------------------------------------------------------------------------- change rate
+# Diff sentence units first, then words inside changed sentence runs, then characters
+# inside changed word runs. Cheap on long documents, close to a character edit distance.
 
-# Hierarchical diff: sentences, then words, then characters, each level only inside
-# blocks the level above found changed. Concatenating the units restores the text.
-_LEVELS = (
+_SPLITTERS = (
     re.compile(r"[^\n.?!]*(?:[.?!]+\s*|\n+|$)"),
     re.compile(r"\s+|\S+\s*"),
 )
-_BLOCK_LIMIT = 1_000_000  # len(a) * len(b) above this: let difflib use its junk heuristic
+_QUADRATIC_LIMIT = 1_000_000
 
 
-def _distance(a: str, b: str, level: int = 0) -> int:
+def _cost(a: str, b: str, depth: int = 0) -> int:
     if a == b:
         return 0
     if not a or not b:
         return max(len(a), len(b))
-    if level < len(_LEVELS):
-        a_units = [u for u in _LEVELS[level].findall(a) if u]
-        b_units = [u for u in _LEVELS[level].findall(b) if u]
-        if len(a_units) == 1 and len(b_units) == 1:
-            return _distance(a, b, level + 1)
-        big = len(a_units) * len(b_units) > _BLOCK_LIMIT
-        matcher = difflib.SequenceMatcher(None, a_units, b_units, autojunk=big)
-        return sum(
-            _distance("".join(a_units[i1:i2]), "".join(b_units[j1:j2]), level + 1)
-            for tag, i1, i2, j1, j2 in matcher.get_opcodes()
-            if tag != "equal"
+    if depth < len(_SPLITTERS):
+        units_a = [u for u in _SPLITTERS[depth].findall(a) if u]
+        units_b = [u for u in _SPLITTERS[depth].findall(b) if u]
+        if len(units_a) == 1 and len(units_b) == 1:
+            return _cost(a, b, depth + 1)
+        seq = difflib.SequenceMatcher(
+            None, units_a, units_b, autojunk=len(units_a) * len(units_b) > _QUADRATIC_LIMIT
         )
-    big = len(a) * len(b) > _BLOCK_LIMIT
-    matcher = difflib.SequenceMatcher(None, a, b, autojunk=big)
-    return sum(
-        max(i2 - i1, j2 - j1) for tag, i1, i2, j1, j2 in matcher.get_opcodes() if tag != "equal"
-    )
+        total = 0
+        for tag, i1, i2, j1, j2 in seq.get_opcodes():
+            if tag != "equal":
+                total += _cost("".join(units_a[i1:i2]), "".join(units_b[j1:j2]), depth + 1)
+        return total
+    seq = difflib.SequenceMatcher(None, a, b, autojunk=len(a) * len(b) > _QUADRATIC_LIMIT)
+    return sum(max(i2 - i1, j2 - j1) for tag, i1, i2, j1, j2 in seq.get_opcodes() if tag != "equal")
 
 
 def change_rate(before: str, after: str) -> float:
-    """Approximate character edit distance / source length."""
+    """Approximate character edits divided by source length."""
     if not before:
-        return 0.0 if not after else 1.0
-    return _distance(before, after) / len(before)
+        return 1.0 if after else 0.0
+    return _cost(before, after) / len(before)
 
 
-# --------------------------------------------------------------------------- numbers
+# ----------------------------------------------------------------------------- numbers
+# "10,000원", "10000원" and "1만 원" are the same value. List numbering is not a value.
+
+LIST_NUMBER = re.compile(r"^(\s*(?:#{1,6}\s*)?)\d+(?:\.\d+)*[.)]\s", re.MULTILINE)
+NUMBER = re.compile(r"(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?([십백천만억조]*)")
+UNIT_VALUE = {"십": 10**1, "백": 10**2, "천": 10**3, "만": 10**4, "억": 10**8, "조": 10**12}
+
 
 def number_values(text: str) -> set[str]:
-    """Canonical numeric values. Ordered-list/heading numbering is ignored."""
-    text = _LIST_MARKER_RE.sub(r"\1", text)
-    values: set[str] = set()
-    for match in _NUM_TOKEN.finditer(text):
-        token = match.group(0).replace(",", "")
-        mult = _KO_UNIT.get(text[match.end():match.end() + 1])
-        try:
-            value = float(token)
-        except ValueError:
-            values.add(token)
-            continue
-        if mult:
-            value *= mult
-        values.add(str(int(value)) if value == int(value) else repr(value))
-    return values
+    found: set[str] = set()
+    for whole, frac, units in NUMBER.findall(LIST_NUMBER.sub(r"\1", prose(text))):
+        value = float(whole.replace(",", "") + frac)
+        for unit in units:
+            value *= UNIT_VALUE[unit]
+        found.add(f"{value:.6f}".rstrip("0").rstrip("."))
+    return found
 
 
-# --------------------------------------------------------------------------- quotes
+# ----------------------------------------------------------------------------- quotes
+# A quote is fixed when the sentence around it attributes it to a speaker
+# ("…"고 말했다, …에 따르면). A writer's own slogan in quotes may be edited.
 
-_MIN_QUOTE = 8
-_SPEECH_MARK_RE = re.compile(
-    r"말했|말한다|밝혔|밝힌|강조했|강조한|언급|설명했|설명한다|전했|덧붙"
-    r"|지적했|지적한다|답했|묻자|물었|따르면|촉구|당부|호소|주장했|경고했"
+QUOTE_PAIRS = (("“", "”"), ("「", "」"), ("『", "』"))
+QUOTE_MIN = 8
+SPEECH_STEMS = (
+    "말했", "말한", "말하", "밝혔", "밝힌", "강조", "언급", "설명했", "설명한", "전했", "덧붙",
+    "지적", "답했", "답변", "물었", "묻자", "따르면", "주장", "경고", "당부", "호소", "촉구",
+    "발표", "회고", "털어놓", "토로",
 )
-_ATTRIB_AFTER_RE = re.compile(
-    r"^[\"”」』]?\s*(?:[이으]?라고|고|[으]?로)\s*[가-힣]{1,8}(?:하|했|한다|된다|였|입니다)"
+QUOTATIVE_AFTER = re.compile(r"^\s*(?:이?라고|고)\s*[가-힣]")
+
+
+def quotes(text: str) -> list[tuple[str, int, int]]:
+    """(quote body, start, end) for every quote long enough to matter."""
+    spans = []
+    for open_, close in QUOTE_PAIRS:
+        for m in re.finditer(re.escape(open_) + "([^" + close + "\n]+)" + re.escape(close), text):
+            spans.append((m.group(1), m.start(), m.end()))
+    for m in re.finditer(r'"([^"\n]+)"', text):
+        spans.append((m.group(1), m.start(), m.end()))
+    return [s for s in spans if len(s[0].strip()) >= QUOTE_MIN]
+
+
+def attributed(text: str, start: int, end: int) -> bool:
+    if QUOTATIVE_AFTER.match(text[end:end + 12]):
+        return True
+    left = max(text.rfind(". ", 0, start), text.rfind("\n", 0, start)) + 1
+    right_candidates = [i for i in (text.find(". ", end), text.find("\n", end)) if i >= 0]
+    right = min(right_candidates) if right_candidates else len(text)
+    sentence = text[left:start] + " " + text[end:right]
+    return any(stem in sentence for stem in SPEECH_STEMS)
+
+
+# ----------------------------------------------------------------------------- protected tokens
+
+LATIN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*(?:[-_.+][A-Za-z0-9]+)*")
+URL = re.compile(r"https?://[^\s<>()\"'”」]+")
+LINK_TARGET = re.compile(r"\]\(([^)\s]+)\)")
+PLACEHOLDER = re.compile(
+    r"\{\{[^{}\n]+\}\}"                     # {{count}}
+    r"|\$\{[^{}\n]+\}"                      # ${user}
+    r"|\{[A-Za-z_][\w.]*(?:,[^{}\n]*)?\}"   # {name}, {n, plural, ...}
+    r"|%(?:\d+\$)?[sdf@]"                   # %s, %1$s
+    r"|</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>\n]*)?/?>"  # HTML/JSX tags
 )
-
-
-def extract_quotes(text: str) -> list[str]:
-    quotes: list[str] = []
-    for opening, closing in (("「", "」"), ("『", "』"), ("“", "”")):
-        quotes += re.findall(re.escape(opening) + "([^" + closing + "]+)" + re.escape(closing), text)
-    parts = text.split('"')
-    if len(parts) % 2 == 1:
-        quotes += parts[1::2]
-    return [q for q in quotes if len(q.strip()) >= _MIN_QUOTE]
-
-
-def is_attributed(source: str, quote: str) -> bool:
-    """Speech-marked quotes are immutable; a writer's own rhetorical quotes are not."""
-    index = source.find(quote)
-    if index < 0:
-        return True
-    before = source[max(0, index - 30):index]
-    cut = before.rfind(". ")
-    if cut >= 0:
-        before = before[cut + 1:]
-    after = source[index + len(quote):index + len(quote) + 24]
-    cut = after.find(". ")
-    if cut >= 0:
-        after = after[:cut + 1]
-    if _ATTRIB_AFTER_RE.search(after):
-        return True
-    return bool(_SPEECH_MARK_RE.search(before) or _SPEECH_MARK_RE.search(after))
-
-
-# --------------------------------------------------------------------------- terms
-
-_LATIN_TERM = re.compile(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*(?:[-_.+][A-Za-z0-9]+)*")
-_INLINE_CODE = re.compile(r"`([^`\n]+)`")
-_URL = re.compile(r"https?://\S+")
 
 
 def latin_terms(text: str) -> set[str]:
-    text = _URL.sub(" ", without_fences(text))
-    return {t for t in _LATIN_TERM.findall(text) if len(t) >= 2}
+    stripped = URL.sub(" ", FENCE.sub("", text))
+    return {t for t in LATIN.findall(stripped) if len(t) >= 2}
 
 
-# --------------------------------------------------------------------------- modality
-# Obligation (당위) and hedge (추측) markers. Tuned against real revisions:
-# the deontic stem allows only open syllables that form -아/어야 (있어야, 손봐야),
-# so nouns such as "분야 해설" do not match.
+def links(text: str) -> set[str]:
+    body = FENCE.sub("", text)
+    found = {u.rstrip(".,;:!?") for u in URL.findall(body)}
+    found |= set(LINK_TARGET.findall(body))
+    return found
 
-_JUNG = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
-_DEONTIC_STEM = "".join(
-    chr(0xAC00 + c)
-    for c in range(11172)
-    if c % 28 == 0 and _JUNG[(c // 28) % 21] in "ㅏㅐㅓㅔㅕㅘㅙㅚㅝㅞ"
+
+def placeholders(text: str) -> Counter[str]:
+    return Counter(PLACEHOLDER.findall(prose(text)))
+
+
+# ----------------------------------------------------------------------------- modality
+# Obligation (당위) and hedge (추측) markers are counted per class. A revision may move
+# them around or change their form, but the class totals must not fall.
+
+def _open_syllable_with(char: str, vowels: str) -> bool:
+    code = ord(char) - 0xAC00
+    if not 0 <= code < 11172 or code % 28:
+        return False
+    return "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"[code % 588 // 28] in vowels
+
+
+_YA = re.compile(r"([가-힣])야(?:만)?\s*(?:하|한|할|함|합|해|했|됩|된|돼)")
+DEONTIC_FIXED = re.compile(
+    r"필요(?:가|성이)?\s*있|필요(?:하다|합니다|해요|하며|하고|한다)"
+    r"|요구(?:된다|됩니다)|바람직(?:하다|합니다|해요)|시급(?:하다|합니다|해요)"
+    r"|마땅(?:하다|합니다)|않으면\s*안\s*(?:된|됩|돼)"
 )
-DEONTIC_RE = re.compile(
-    rf"[{_DEONTIC_STEM}]야\s*(?:한다|합니다|했다|하며|하고|하는|할|함"
-    r"|했어요|했어|해요|해서|해도|하지요|하죠|해)"
-    rf"|[{_DEONTIC_STEM}]야만"
-    r"|필요가\s*있|필요하다|필요합니다|요구된다|요구됩니다"
-    r"|시급하다|시급합니다|바람직하다|바람직합니다|촉구한다|당부한다"
-    r"|[가-힣]지\s*않으면\s*안\s*(?:된다|됩니다|되며|돼|되)"
-)
-HEDGE_RE = re.compile(
-    r"수\s*(?:있다|있습니다|있을)"
-    r"|것으로\s*(?:보인다|보입니다|전망|판단|추정|알려)"
-    r"|가능성[이도은을에]"
-    r"|[을ㄹ]\s*수도|수도\s*있"
-    r"|[로으]\s*보인다|[로으]\s*보입니다"
-    r"|판단된다|판단됩니다|여겨진다|여겨집니다"
-    r"|해석된다|추정된다|기대된다|우려된다"
-    r"|듯하|듯\s*싶|것\s*같다|것\s*같습니다"
-    r"|전망(?:이다|된다|한다|했다|입니다|이며|하고)"
-    r"|예상(?:된다|이다|한다|했다|됩니다)"
-    r"|단정하기|여지(?:도|가)?\s*있|배제할\s*수\s*없"
+HEDGE = re.compile(
+    r"수\s*(?:도\s*)?있"
+    r"|[을ㄹ]?지도\s*모르|것\s*같|듯(?:하|싶|\s*싶|\s*하)"
+    r"|(?:[로으]|것으로)\s*(?:보인다|보입니다|보이며|보이고|보여요|보인다는)"
+    r"|(?:판단|추정|예상|전망|기대|우려|해석)(?:된다|됩니다|돼요|되며|되고|한다|합니다)"
+    r"|여겨(?:진|집|져)|가능성[이도은을에]|여지[가도]?\s*있"
+    r"|단정하기|배제할\s*수\s*없|아마도?\s"
 )
 
-# --------------------------------------------------------------------------- register
 
-_SENT_END = re.compile(r"[^.?!\n]+[.?!]?")
-_YO_NOUN_HEADS = "필중개수주소강동풍"
+def modality_counts(text: str) -> tuple[Counter[str], Counter[str]]:
+    body = prose(text)
+    deontic: Counter[str] = Counter()
+    for m in _YA.finditer(body):
+        if _open_syllable_with(m.group(1), "ㅏㅐㅓㅔㅕㅘㅙㅚㅝㅞ"):
+            deontic["-야 하다"] += 1
+    deontic.update(re.sub(r"\s+", " ", m.group(0)) for m in DEONTIC_FIXED.finditer(body))
+    hedge = Counter(re.sub(r"\s+", " ", m.group(0)) for m in HEDGE.finditer(body))
+    return deontic, hedge
 
 
-def ending_class(sentence: str) -> str | None:
-    s = sentence.strip().rstrip(" \"'”’)]}")
-    s = s.rstrip(".?!…")
-    if not s or not re.search(r"[가-힣]$", s):
+# ----------------------------------------------------------------------------- register
+
+SENTENCE = re.compile(r"[^.?!\n]+[.?!]?")
+NOUNS_ENDING_IN_YO = {"필요", "중요", "주요", "개요", "수요", "소요", "강요", "요요", "동요", "풍요"}
+
+
+def register_of(sentence: str) -> str | None:
+    s = sentence.strip().rstrip(" \"'”’)]}.?!…")
+    if not s or not "가" <= s[-1] <= "힣":
         return None
     if s.endswith(("니다", "니까")):
         return "합쇼체"
-    if s.endswith("요") and (len(s) < 2 or s[-2] not in _YO_NOUN_HEADS):
-        return "해요체"
+    if s.endswith("요"):
+        return None if s[-2:] in NOUNS_ENDING_IN_YO else "해요체"
     if s.endswith("다"):
         return "한다체"
     return None
 
 
 def dominant_register(text: str) -> str | None:
-    counts = Counter(c for c in map(ending_class, _SENT_END.findall(without_fences(text))) if c)
-    if not counts:
+    tally = Counter(r for r in map(register_of, SENTENCE.findall(prose(text))) if r)
+    if not tally:
         return None
-    name, top = counts.most_common(1)[0]
-    if top >= 3 and top * 2 > sum(counts.values()):
-        return name
-    return None
+    name, top = tally.most_common(1)[0]
+    return name if top >= 3 and top * 2 > sum(tally.values()) else None
 
 
-# --------------------------------------------------------------------------- injected wording
-# Increase-only lists: keeping what the source already had is never flagged.
+# ----------------------------------------------------------------------------- wording lists
+# Increase-only in revision mode: what the source already had is never flagged.
 
-HYPE = (
-    "100%", "100 %", "원천 차단", "원천적으로", "완벽하게", "완벽히", "완벽한", "격상",
-    "극대화", "극심한", "치명적", "심각하게", "무결성", "혁신적", "획기적", "압도적",
-    "폭발적", "파격적", "전례 없는", "게임체인저", "대폭", "비약적",
-)
-LOANWORDS = (
-    "임팩트", "어필", "딥다이브", "딥 다이브", "인사이트", "시너지", "레버리지", "니즈",
-    "퀵윈", "To-Be", "As-Is", "Deep Dive", "deep dive", "impact",
-)
-CLICHES = (
-    "기록적인 성과", "괄목할 만한", "로 평가된다", "로 평가받", "주목받", "크게 기여",
-    "중요한 역할을 한다", "시사하는 바가 크", "의미가 크다", "새로운 장을 열", "지평을 열",
-)
-NOMINAL = (
-    "로 인한", "으로 인한", "현상이 발생", "가 발생했", "이 발생했", "을 진행하였",
-    "를 진행하였", "을 수행하였", "를 수행하였", "에 있어", "되어지", "에서의", "으로의",
-)
-OBSERVER = (
-    "로 적혀 있", "라고 적혀 있", "로 되어 있습니다", "라고 되어 있", "것으로 나타났",
-    "것으로 확인되었", "것으로 알려져",
-)
+WORDING: dict[str, tuple[str, ...]] = {
+    "hype_added": (
+        "100%", "100 %", "원천 차단", "원천적으로", "완벽하게", "완벽히", "완벽한", "격상",
+        "극대화", "극심한", "치명적", "심각하게", "무결성", "혁신적", "획기적", "압도적",
+        "폭발적", "파격적", "전례 없는", "게임체인저", "대폭", "비약적",
+    ),
+    "loanword_added": (
+        "임팩트", "어필", "딥다이브", "딥 다이브", "인사이트", "시너지", "레버리지", "니즈",
+        "퀵윈", "To-Be", "As-Is", "Deep Dive", "deep dive", "impact",
+    ),
+    "cliche_added": (
+        "기록적인 성과", "괄목할 만한", "로 평가된다", "로 평가받", "주목받", "크게 기여",
+        "중요한 역할을 한", "시사하는 바가 크", "의미가 크다", "새로운 장을 열", "지평을 열",
+        "앞서 말씀드린", "앞서 설명했듯이", "다음과 같습니다",
+    ),
+    "nominal_added": (
+        "로 인한", "으로 인한", "현상이 발생", "가 발생했", "이 발생했",
+        "을 진행하였", "를 진행하였", "을 진행했", "를 진행했",
+        "을 수행하였", "를 수행하였", "을 수행했", "를 수행했",
+    ),
+    "translationese_added": (
+        "에 대해", "에 대하여", "에 관하여", "와 관련하여", "과 관련하여", "에 의해", "에 의하여",
+        "에 있어", "가지고 있", "로부터의", "에서의", "으로의", "의 경우", "에 위치한", "에 위치하",
+        "되어지", "되어진", "보여지", "쓰여지", "쓰여진", "닫혀지", "잊혀지", "불려지", "놓여지",
+        "나뉘어지", "읽혀지", "개선시", "향상시", "발전시", "감소시", "증가시", "변화시", "설득시",
+        "하는 중이", "중 하나이", "중 하나다", "중 하나입",
+    ),
+    "observer_added": (
+        "로 적혀 있", "라고 적혀 있", "로 되어 있습니다", "라고 되어 있", "것으로 나타났",
+        "것으로 확인되었", "것으로 알려져",
+    ),
+    "unsourced_added": (
+        "일반적으로", "흔히", "널리 알려", "널리 쓰이", "전문가들은", "전문가들에 따르면",
+        "많은 사람들이", "대부분의 사람", "업계에서는", "통상적으로", "연구에 따르면",
+        "이른바", "소위", "이것이 바로",
+    ),
+}
+
+# Forms with exactly one correct replacement (plus the always-wrong honorific -실게요).
+# Ambiguous cases (에요/예요, 로서/로써, 바램) need context and are left to the reviser.
+MISSPELLING: dict[str, str] = {
+    "됬": "됐", "됀": "된", "되요": "돼요", "되서": "돼서", "뵈요": "봬요",
+    "않되": "안 되", "않돼": "안 돼", "몇일": "며칠", "역활": "역할", "어의없": "어이없",
+    "오랫만": "오랜만", "왠만": "웬만", "왠일": "웬일", "웬지": "왠지", "희안하": "희한하",
+    "어떻해": "어떡해", "할께": "할게", "갈께": "갈게", "줄께": "줄게", "볼께": "볼게",
+    "드릴께": "드릴게", "할려고": "하려고", "갈려고": "가려고", "볼려고": "보려고",
+    "일일히": "일일이", "깨끗히": "깨끗이", "곰곰히": "곰곰이", "틈틈히": "틈틈이",
+    "번번히": "번번이", "설겆이": "설거지", "컨텐츠": "콘텐츠", "메세지": "메시지",
+    "캡쳐": "캡처", "리더쉽": "리더십", "멤버쉽": "멤버십", "스케쥴": "스케줄",
+    "실게요": "-아 주세요 (높임 오류)",
+}
+
+EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿⭐⬆↔-⇿]")
+BOLD = re.compile(r"\*\*[^*\n]+\*\*|__[^_\n]+__")
+NUMBERED = re.compile(r"^\s*(?:#{1,6}\s*)?\d+(?:\.\d+)*[.)]\s", re.MULTILINE)
+HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", re.MULTILINE)
 CONTRAST = ("가 아니라", "이 아니라", "것이 아니라", "것은 아니다", "인가, ")
 
-_EMOJI = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B50\u2B06\u2194-\u21FF]")
-_BOLD = re.compile(r"\*\*[^*\n]+\*\*|__[^_\n]+__")
-_NUMBERED = re.compile(r"^\s*(?:#{1,6}\s*)?\d+(?:\.\d+)*[.)]\s", re.MULTILINE)
-_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", re.MULTILINE)
+
+def tally(text: str, words: tuple[str, ...]) -> Counter[str]:
+    return Counter({w: n for w in words if (n := text.count(w))})
 
 
-def count_terms(text: str, terms: tuple[str, ...]) -> Counter[str]:
-    return Counter({t: text.count(t) for t in terms if text.count(t)})
+def grown(before: str, after: str, words: tuple[str, ...]) -> list[str]:
+    old, new = tally(before, words), tally(after, words)
+    return [f"{w} {old.get(w, 0)}→{n}" for w, n in new.items() if n > old.get(w, 0)]
 
 
-def increased(before: str, after: str, terms: tuple[str, ...]) -> list[str]:
-    b, a = count_terms(before, terms), count_terms(after, terms)
-    return [f"{t} {b.get(t, 0)}→{n}" for t, n in a.items() if n > b.get(t, 0)]
+def spelling_findings(text: str) -> list[Finding]:
+    hits = [f"{bad}→{good} ×{n}" for bad, good in MISSPELLING.items() if (n := prose(text).count(bad))]
+    return [Finding("spelling", "맞춤법·높임 의심: " + ", ".join(hits))] if hits else []
 
 
-# --------------------------------------------------------------------------- main check
+def length_findings(text: str, limit: int | None, no_spaces: bool) -> list[Finding]:
+    if limit is None:
+        return []
+    with_ws, without_ws = char_counts(text)
+    size, label = (without_ws, "공백 제외") if no_spaces else (with_ws, "공백 포함")
+    if size > limit:
+        return [Finding("length_over", f"{label} {size}자 — 한도 {limit}자를 {size - limit}자 넘음")]
+    return []
 
-def check(before: str, after: str, *, deep: bool = False) -> dict[str, object]:
+
+# ----------------------------------------------------------------------------- checks
+
+def check(
+    before: str,
+    after: str,
+    *,
+    deep: bool = False,
+    limit: int | None = None,
+    no_spaces: bool = False,
+) -> dict[str, object]:
     before, after = normalize(before), normalize(after)
-    violations: list[Finding] = []
-    warnings: list[Finding] = []
+    bad: list[Finding] = []
+    warn: list[Finding] = []
 
     if not after.strip():
-        violations.append(Finding("empty_output", "결과가 비어 있습니다"))
-        return _result(0.0 if not before else 1.0, violations, warnings)
+        bad.append(Finding("empty_output", "결과가 비어 있습니다"))
+        return _result(0.0 if not before else 1.0, after, bad, warn)
 
     rate = change_rate(before, after)
     if rate >= STOP_RATE and not deep:
-        violations.append(Finding("over_revised", f"변경률 {rate:.1%} — 다듬기 한도 50% 이상"))
+        bad.append(Finding("over_revised", f"변경률 {rate:.1%} — 다듬기 한도 50% 이상"))
     elif rate >= WARN_RATE:
-        warnings.append(Finding("change_rate", f"변경률 {rate:.1%} — 30% 이상, 과다 수정인지 확인"))
+        warn.append(Finding("change_rate", f"변경률 {rate:.1%} — 30% 이상, 과다 수정인지 확인"))
 
     src_nums, out_nums = number_values(before), number_values(after)
-    if added := sorted(out_nums - src_nums):
-        violations.append(Finding("number_injected", "원문에 없던 수치: " + ", ".join(added)))
-    if dropped := sorted(src_nums - out_nums):
-        warnings.append(Finding("number_dropped", "원문 수치가 사라짐: " + ", ".join(dropped)))
+    if extra := sorted(out_nums - src_nums):
+        bad.append(Finding("number_injected", "원문에 없던 수치: " + ", ".join(extra)))
+    if gone := sorted(src_nums - out_nums):
+        warn.append(Finding("number_dropped", "원문 수치가 사라짐: " + ", ".join(gone)))
 
-    for quote in extract_quotes(before):
-        if quote not in after and is_attributed(before, quote):
-            violations.append(Finding("quote_altered", f"직접 인용이 바뀜: {quote[:40]}"))
+    for body, start, end in quotes(before):
+        if body not in after and attributed(before, start, end):
+            bad.append(Finding("quote_altered", f"직접 인용이 바뀜: {body[:40]}"))
 
-    for block in fenced_blocks(before):
+    for block in FENCE.findall(before):
         if block not in after:
-            first = block.splitlines()[0] if block else ""
-            violations.append(Finding("code_altered", f"코드 블록이 바뀜: {first[:40]}"))
+            bad.append(Finding("code_altered", f"코드 블록이 바뀜: {block.splitlines()[0][:40]}"))
 
-    src_code = set(_INLINE_CODE.findall(without_fences(before)))
-    if lost := sorted(c for c in src_code if f"`{c}`" not in after and c not in after):
-        warnings.append(Finding("inline_code_dropped", "인라인 코드가 사라짐: " + ", ".join(lost)))
+    src_ph, out_ph = placeholders(before), placeholders(after)
+    if gone := sorted((src_ph - out_ph).elements()):
+        bad.append(Finding("placeholder_altered", "자리표시자·태그가 사라지거나 바뀜: " + ", ".join(gone)))
+    if extra := sorted((out_ph - src_ph).elements()):
+        warn.append(Finding("placeholder_added", "새 자리표시자·태그: " + ", ".join(extra)))
+
+    src_links, out_links = links(before), links(after)
+    if extra := sorted(out_links - src_links):
+        bad.append(Finding("link_injected", "원문에 없던 링크: " + ", ".join(extra)))
+    if gone := sorted(src_links - out_links):
+        warn.append(Finding("link_dropped", "원문 링크가 사라짐: " + ", ".join(gone)))
+
+    src_code = set(INLINE_CODE.findall(FENCE.sub("", before)))
+    if gone := sorted(c for c in src_code if c not in after):
+        warn.append(Finding("inline_code_dropped", "인라인 코드가 사라짐: " + ", ".join(gone)))
 
     src_terms, out_terms = latin_terms(before), latin_terms(after)
-    if lost := sorted(src_terms - out_terms):
-        warnings.append(Finding("term_dropped", "원문 영문 이름·용어가 사라짐: " + ", ".join(lost)))
-    if new := sorted(out_terms - src_terms):
-        warnings.append(Finding("term_added", "새 영문 표현: " + ", ".join(new)))
+    if gone := sorted(src_terms - out_terms):
+        warn.append(Finding("term_dropped", "원문 영문 이름·용어가 사라짐: " + ", ".join(gone)))
+    if extra := sorted(out_terms - src_terms):
+        warn.append(Finding("term_added", "새 영문 표현: " + ", ".join(extra)))
 
-    for name, pattern in (("당위", DEONTIC_RE), ("추측", HEDGE_RE)):
-        b, a = Counter(pattern.findall(before)), Counter(pattern.findall(after))
-        if sum(a.values()) < sum(b.values()):
-            lost_marks = [f"{m} {n}→{a.get(m, 0)}" for m, n in b.items() if a.get(m, 0) < n]
-            warnings.append(Finding(
-                "modality_lost",
-                f"{name} 표현 {sum(b.values())}→{sum(a.values())}: " + ", ".join(lost_marks),
+    for label, old, new in zip(("당위", "추측"), modality_counts(before), modality_counts(after)):
+        if new.total() < old.total():
+            lost = [f"{m} {n}→{new.get(m, 0)}" for m, n in old.items() if new.get(m, 0) < n]
+            warn.append(Finding(
+                "modality_lost", f"{label} 표현 {old.total()}→{new.total()}: " + ", ".join(lost)
             ))
 
     src_reg, out_reg = dominant_register(before), dominant_register(after)
     if src_reg and out_reg and src_reg != out_reg:
-        warnings.append(Finding("register_shift", f"문체 높낮이 {src_reg} → {out_reg}"))
-    if after.count("하였") > before.count("하였"):
-        warnings.append(Finding(
-            "register_shift", f"'하였' {before.count('하였')}→{after.count('하였')} (격식 올림)",
-        ))
+        warn.append(Finding("register_shift", f"문체 높낮이 {src_reg} → {out_reg}"))
+    if (n_after := after.count("하였")) > (n_before := before.count("하였")):
+        warn.append(Finding("register_shift", f"'하였' {n_before}→{n_after} (격식 올림)"))
 
-    for code, terms in (
-        ("hype_added", HYPE),
-        ("loanword_added", LOANWORDS),
-        ("cliche_added", CLICHES),
-        ("nominal_added", NOMINAL),
-        ("observer_added", OBSERVER),
-    ):
-        if hits := increased(before, after, terms):
-            warnings.append(Finding(code, ", ".join(hits)))
+    for code, words in WORDING.items():
+        if hits := grown(prose(before), prose(after), words):
+            warn.append(Finding(code, ", ".join(hits)))
+
+    warn += spelling_findings(after)
 
     fmt = []
-    for label, pattern in (("굵은 글씨", _BOLD), ("이모지", _EMOJI), ("번호 항목", _NUMBERED)):
-        b, a = len(pattern.findall(before)), len(pattern.findall(after))
-        if a > b:
-            fmt.append(f"{label} {b}→{a}")
+    for label, pattern in (("굵은 글씨", BOLD), ("이모지", EMOJI), ("번호 항목", NUMBERED)):
+        old_n, new_n = len(pattern.findall(before)), len(pattern.findall(after))
+        if new_n > old_n:
+            fmt.append(f"{label} {old_n}→{new_n}")
     if fmt:
-        warnings.append(Finding("format_added", ", ".join(fmt)))
+        warn.append(Finding("format_added", ", ".join(fmt)))
 
-    src_heads = [h.strip() for h in _HEADING.findall(before)]
-    out_heads = [h.strip() for h in _HEADING.findall(after)]
-    removed = [h for h in src_heads if h not in out_heads]
-    added_heads = [h for h in out_heads if h not in src_heads]
-    if removed or added_heads:
-        parts = []
-        if removed:
-            parts.append("사라진 제목: " + ", ".join(removed))
-        if added_heads:
-            parts.append("새 제목: " + ", ".join(added_heads))
-        warnings.append(Finding("heading_changed", " / ".join(parts)))
+    src_heads = [h.strip() for h in HEADING.findall(before)]
+    out_heads = [h.strip() for h in HEADING.findall(after)]
+    parts = []
+    if removed := [h for h in src_heads if h not in out_heads]:
+        parts.append("사라진 제목: " + ", ".join(removed))
+    if added := [h for h in out_heads if h not in src_heads]:
+        parts.append("새 제목: " + ", ".join(added))
+    if parts:
+        warn.append(Finding("heading_changed", " / ".join(parts)))
 
-    b_contrast = sum(before.count(t) for t in CONTRAST)
-    if b_contrast >= 5 and sum(after.count(t) for t in CONTRAST) == 0:
-        warnings.append(Finding("contrast_wiped", f"대구 {b_contrast}→0 — 잘 쓴 대구 하나는 남긴다"))
+    contrast_before = sum(before.count(t) for t in CONTRAST)
+    if contrast_before >= 5 and not any(t in after for t in CONTRAST):
+        warn.append(Finding("contrast_wiped", f"대구 {contrast_before}→0 — 잘 쓴 대구 하나는 남긴다"))
 
-    return _result(rate, violations, warnings)
+    bad += length_findings(after, limit, no_spaces)
+    return _result(rate, after, bad, warn)
 
 
-def _result(rate: float, violations: list[Finding], warnings: list[Finding]) -> dict[str, object]:
-    code = 2 if violations else 1 if warnings else 0
+def check_draft(text: str, *, limit: int | None = None, no_spaces: bool = False) -> dict[str, object]:
+    """Self-check for a new draft: no source to compare, so wording lists count presence."""
+    text = normalize(text)
+    if not text.strip():
+        return _result(None, text, [Finding("empty_output", "결과가 비어 있습니다")], [])
+    warn = [Finding(code, ", ".join(hits)) for code, words in WORDING.items()
+            if (hits := grown("", prose(text), words))]
+    warn += spelling_findings(text)
+    return _result(None, text, length_findings(text, limit, no_spaces), warn)
+
+
+def _result(rate: float | None, text: str, bad: list[Finding], warn: list[Finding]) -> dict[str, object]:
+    with_ws, without_ws = char_counts(text)
     return {
-        "code": code,
-        "change_rate": round(rate, 4),
-        "violations": [asdict(f) for f in violations],
-        "warnings": [asdict(f) for f in warnings],
+        "code": 2 if bad else 1 if warn else 0,
+        "change_rate": None if rate is None else round(rate, 4),
+        "chars": {"with_spaces": with_ws, "without_spaces": without_ws},
+        "violations": [asdict(f) for f in bad],
+        "warnings": [asdict(f) for f in warn],
     }
 
 
@@ -414,26 +507,35 @@ VERDICT = {0: "통과", 1: "확인 필요", 2: "채택 금지"}
 
 
 def render(result: dict[str, object]) -> str:
-    lines = [f"판정: {VERDICT[result['code']]} ({result['code']})", f"변경률: {result['change_rate']:.1%}"]
+    chars = result["chars"]
+    lines = [f"판정: {VERDICT[result['code']]} ({result['code']})"]
+    if result["change_rate"] is not None:
+        lines.append(f"변경률: {result['change_rate']:.1%}")
+    lines.append(f"글자 수: 공백 포함 {chars['with_spaces']} / 공백 제외 {chars['without_spaces']}")
     lines += [f"[위반] {f['code']}: {f['detail']}" for f in result["violations"]]
     lines += [f"[확인] {f['code']}: {f['detail']}" for f in result["warnings"]]
     return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="원문과 고친 글을 대조한다.")
-    parser.add_argument("--before", required=True, help="원문 파일")
-    parser.add_argument("--after", required=True, help="고친 글 파일")
+    parser = argparse.ArgumentParser(description="원문과 고친 글을 대조한다. 원문 없이 주면 초안만 점검한다.")
+    parser.add_argument("--before", help="원문 파일 (없으면 초안 점검)")
+    parser.add_argument("--after", required=True, help="고친 글 또는 초안 파일")
     parser.add_argument("--deep", action="store_true", help="깊게 고치기: 변경률 50%%를 경고로만 본다")
+    parser.add_argument("--limit", type=int, help="글자 수 한도 (기본은 공백 포함)")
+    parser.add_argument("--no-spaces", action="store_true", help="--limit을 공백 제외 글자 수로 센다")
     parser.add_argument("--json", action="store_true", help="JSON으로 출력")
     args = parser.parse_args(argv)
     try:
-        before = Path(args.before).read_text(encoding="utf-8")
         after = Path(args.after).read_text(encoding="utf-8")
+        before = Path(args.before).read_text(encoding="utf-8") if args.before else None
     except (OSError, UnicodeDecodeError) as error:
         print(f"입력 오류: {error}", file=sys.stderr)
         return 3
-    result = check(before, after, deep=args.deep)
+    if before is None:
+        result = check_draft(after, limit=args.limit, no_spaces=args.no_spaces)
+    else:
+        result = check(before, after, deep=args.deep, limit=args.limit, no_spaces=args.no_spaces)
     print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else render(result))
     return int(result["code"])
 

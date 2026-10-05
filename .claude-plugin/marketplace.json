@@ -16,9 +16,9 @@
       "description": "Dataset and Hugging Face workflow guidance: proportional pre-flight, streaming, validation, private publishing."
     },
     {
-      "name": "clonamic-design-plugin",
-      "source": "./clonamic-design-plugin",
-      "description": "Optional design, browser QA, visual systems, and media-art skills."
+      "name": "clonamic-design",
+      "source": "./clonamic-design",
+      "description": "UI design direction, UI review, real-browser QA, visual art, and hand-drawn diagrams that run on the host's own tools."
     },
     {
       "name": "clonamic-documents",
@@ -33,7 +33,7 @@
     {
       "name": "clonamic-harness",
       "source": "./clonamic-harness",
-      "description": "Stage-by-stage working discipline for AI coding agents: read the request exactly, gate persistent changes behind Korean 작업명세서/개발명세서 approvals, add agents only when they pay off, and finish with fresh-evidence verification and an outcome-first 보고서."
+      "description": "Stage-by-stage working discipline for AI coding agents: read the request exactly, gate persistent changes behind at most two Korean approvals (작업명세서 only while intent is unsynced, then 개발명세서), add agents such as an independent reviewer only when they pay off, and finish with fresh-evidence verification and an outcome-first 보고서."
     },
     {
       "name": "clonamic-korean",

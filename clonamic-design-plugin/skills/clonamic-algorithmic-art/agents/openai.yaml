@@ -1,3 +1,0 @@
-interface:
-  display_name: "Clonamic Algorithmic Art"
-  short_description: "Create seeded offline art with local p5.js"

@@ -2,6 +2,17 @@
 
 Agent Plugins 1.0.0 표준을 따른다. Claude만 규격이 달라서 `.claude-plugin/`을 추가하는데, 이 파일은 손으로 쓰지 않고 스크립트로 만든다(아래 "매니페스트 동기화").
 
+## 계층
+
+| 층 | 무엇인가 | 위치 |
+|---|---|---|
+| 스킬 | 일 하나. 양식과 그 규칙(무엇인지, 언제, 어떻게 쓰는지) | `plugin-name/skills/<name>/SKILL.md` |
+| 플러그인 | 역할 하나를 이루는 스킬 묶음. 필요하면 코드와 MCP를 함께 담는 배포 단위 | `plugin-name/` |
+| 서브에이전트 | 독립된 컨텍스트에서 정해진 절차를 맡아 실행하는 일꾼. 스킬의 절차가 부르고, 스킬을 대신하지 않는다 | `plugin-name/agents/<name>.md` |
+
+- 서브에이전트는 Claude, Cursor, Grok이 플러그인에서 읽는다. Codex는 플러그인의 서브에이전트를 읽지 못하므로, 서브에이전트를 쓰는 스킬은 순차 실행 대안을 함께 적는다.
+- 플러그인과 따로 쓰는 서브에이전트는 `clonamic/subagents` 저장소에서 관리한다.
+
 ## 원칙
 
 - **플러그인 하나 = 역할 하나, 스킬 하나 = 일 하나.** 기능이 겹치면 합친다.
@@ -77,11 +88,10 @@ plugin.json                          # 원본. $schema 필수, 표준 키만, �
 .cursor-plugin/plugin.json           # 생성. agents/가 있는 플러그인만
 ../.claude-plugin/marketplace.json   # 생성. Claude·Cursor·Grok(Codex도 읽음)
 ../.agents/plugins/marketplace.json  # 생성. Codex
-clonamic-harness/skills/*/references # 생성. ../template/의 명세서·보고서 양식을 복사
 ```
 
 ```bash
-python3 scripts/sync_manifests.py          # 루트 plugin.json이나 template을 고친 뒤 실행
+python3 scripts/sync_manifests.py          # 루트 plugin.json을 고친 뒤 실행
 python3 scripts/sync_manifests.py --check  # 커밋 전 확인. tests/test_manifests.py도 같은 검사를 한다
 ```
 

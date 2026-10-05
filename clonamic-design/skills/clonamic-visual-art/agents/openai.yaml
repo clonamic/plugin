@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic Visual Art"
+  short_description: "Create posters and generative artwork"
+  default_prompt: "Use $clonamic-visual-art to create this visual piece and export it."
+policy:
+  allow_implicit_invocation: true

@@ -48,6 +48,7 @@ Classify every directive by its direct object, not by words like "always" or "ne
 
 - First read the project evidence that can answer the question yourself.
 - Ask only when the answer changes the output, the target, or an irreversible effect, and evidence cannot decide it. Put all such questions in one message, each with a recommended default.
+- When a 작업명세서 is due (`clonamic-spec`), do not ask separately: put these points in its `가정:` line with defaults; the user corrects only what is wrong.
 - Otherwise state the assumption in one line and proceed. Minor ambiguity never blocks work.
 
 ## 6. Interview mode (only when asked)

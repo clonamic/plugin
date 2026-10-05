@@ -84,8 +84,10 @@ class FidelityTests(unittest.TestCase):
         self.assertNotIn("modality_lost", codes(result))
 
     def test_noun_ya_is_not_obligation(self) -> None:
-        self.assertEqual(cr.DEONTIC_RE.findall("이 분야 해설서를 읽었다."), [])
-        self.assertTrue(cr.DEONTIC_RE.findall("손봐야 한다."))
+        self.assertEqual(cr.modality_counts("이 분야 해설서를 읽었다.")[0].total(), 0)
+        self.assertEqual(cr.modality_counts("손봐야 한다. 있어야만 합니다.")[0].total(), 2)
+        self.assertEqual(cr.modality_counts("아마존에 올렸다.")[1].total(), 0)
+        self.assertEqual(cr.modality_counts("화면으로 보여 줬다.")[1].total(), 0)
 
 
 class RegisterAndWordingTests(unittest.TestCase):
@@ -118,11 +120,62 @@ class RegisterAndWordingTests(unittest.TestCase):
         self.assertIn("contrast_wiped", codes(result))
 
 
+class ProtectedTokenTests(unittest.TestCase):
+    def test_dropped_placeholder_is_a_violation(self) -> None:
+        source = "{name}님, {{count}}건이 남았어요. <b>%s</b>"
+        result = cr.check(source, "고객님, 몇 건이 남았어요. %s")
+        self.assertIn("placeholder_altered", violations(result))
+        kept = cr.check(source, "{name}님, 아직 {{count}}건이 남았어요. <b>%s</b>")
+        self.assertNotIn("placeholder_altered", codes(kept))
+        self.assertNotIn("placeholder_added", codes(kept))
+
+    def test_links_injected_and_dropped(self) -> None:
+        source = "설치 방법은 [문서](https://example.com/docs)에 있습니다."
+        injected = cr.check(source, "설치 방법은 [문서](https://example.com/docs)와 https://evil.example 에 있습니다.")
+        self.assertIn("link_injected", violations(injected))
+        dropped = cr.check(source, "설치 방법은 문서에 있습니다.")
+        self.assertIn("link_dropped", codes(dropped))
+        self.assertNotIn("link_injected", codes(dropped))
+
+
+class WordingAndNormsTests(unittest.TestCase):
+    def test_unsourced_and_translationese_increase(self) -> None:
+        result = cr.check("체크리스트를 확인합니다.", "일반적으로 체크리스트를 확인합니다.")
+        self.assertIn("unsourced_added", codes(result))
+        result = cr.check("운영팀이 배포했습니다.", "운영팀에 의해 배포가 되어졌습니다.", deep=True)
+        self.assertIn("translationese_added", codes(result))
+        same = "이 문제에 대해 운영팀에 의해 결정된 사항입니다."
+        self.assertNotIn("translationese_added", codes(cr.check(same, same)))
+
+    def test_spelling_flags_only_unambiguous_forms(self) -> None:
+        result = cr.check("테스트를 몇일 돌렸다.", "테스트를 몇일 돌렸고 잘 됬다.")
+        self.assertIn("spelling", codes(result))
+        self.assertIn("됬→됐", next(f["detail"] for f in result["warnings"] if f["code"] == "spelling"))
+        for fine in ("학교에요.", "선생님들께 여쭸습니다.", "구조를 알려고 했다.", "만들려고 했다.", "설레임 아이스크림"):
+            self.assertEqual(cr.spelling_findings(fine), [], fine)
+        self.assertTrue(cr.spelling_findings("이쪽에 앉으실게요."))
+
+    def test_length_limit(self) -> None:
+        text = "가나다 라마바"
+        self.assertEqual(cr.char_counts(text), (7, 6))
+        self.assertIn("length_over", violations(cr.check(text, text, limit=6)))
+        self.assertNotIn("length_over", codes(cr.check(text, text, limit=6, no_spaces=True)))
+        self.assertEqual(cr.check(text, text, limit=7)["code"], 0)
+
+    def test_draft_mode_counts_presence(self) -> None:
+        result = cr.check_draft("업계에서는 이를 혁신적인 시너지라고 부른다.")
+        self.assertEqual({"unsourced_added", "hype_added", "loanword_added"}, codes(result))
+        self.assertEqual(cr.check_draft("배포 전에 로그를 확인한다.")["code"], 0)
+
+
 class RateTests(unittest.TestCase):
     def test_identical_text_passes(self) -> None:
         text = "결제 모듈을 리팩터링해 장애 건수를 줄였습니다."
         result = cr.check(text, text)
-        self.assertEqual(result, {"code": 0, "change_rate": 0.0, "violations": [], "warnings": []})
+        self.assertEqual(result, {
+            "code": 0, "change_rate": 0.0, "chars": {"with_spaces": 26, "without_spaces": 21},
+            "violations": [], "warnings": [],
+        })
 
     def test_thresholds(self) -> None:
         self.assertAlmostEqual(cr.change_rate("가나다라마바사아자차", "가나다라마바사아자타"), 0.1)
@@ -168,6 +221,19 @@ class CliTests(unittest.TestCase):
         self.assertEqual(bad.returncode, 2)
         self.assertEqual(json.loads(bad.stdout)["violations"][0]["code"], "number_injected")
 
+    def test_draft_cli_reports_length(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            draft = Path(tmp) / "draft.txt"
+            draft.write_text("저는 백엔드 개발자입니다.\n", encoding="utf-8")
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPT), "--after", str(draft), "--limit", "5"],
+                capture_output=True, text=True, check=False,
+            )
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("글자 수: 공백 포함 14 / 공백 제외 12", proc.stdout)
+        self.assertIn("length_over", proc.stdout)
+        self.assertNotIn("변경률", proc.stdout)
+
     def test_missing_input(self) -> None:
         proc = subprocess.run(
             [sys.executable, str(SCRIPT), "--before", "/nonexistent/a", "--after", "/nonexistent/b"],
@@ -196,7 +262,7 @@ class FieldLessonRegressionTests(unittest.TestCase):
 
     def test_lessons_have_complete_examples(self) -> None:
         cases = self.cases()
-        self.assertGreaterEqual(len(cases), 12)
+        self.assertGreaterEqual(len(cases), 19)
         for title, examples in cases:
             self.assertEqual(set(examples), {"원문", "나쁜 수정", "좋은 수정"}, title)
 
@@ -220,6 +286,12 @@ class FieldLessonRegressionTests(unittest.TestCase):
             "8. 서식 과잉": "format_added",
             "9. 범위 넘기": "heading_changed",
             "12. 유보를 단정으로": "modality_lost",
+            "14. 문장을 이으려고 통용성을 지어내기": "unsourced_added",
+            "15. 지어낸 개념어로 포장하기": "unsourced_added",
+            "16. 화면 문구의 자리표시자를 지우기": "placeholder_altered",
+            "17. 고칠 곳 없는 문장을 번역투로 격식 올리기": "translationese_added",
+            "18. 맞춤법을 고치다 새로 틀리기": "spelling",
+            "19. 공손하게 한다며 지나치게 높이기": "spelling",
         }
         for title, code in expect.items():
             ex = cases[title]

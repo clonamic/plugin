@@ -1,6 +1,6 @@
 ---
 name: clonamic-team
-description: Decide whether to work directly, use a worker+reviewer pair, a lead with specialists, or a bounded multi-agent decision review — only when the value exceeds the coordination cost. Use before delegating to subagents or when the user asks for a team or an independent review.
+description: Decide whether to work directly, use a worker+reviewer pair (with the clonamic-reviewer subagent), a lead with specialists, or a bounded multi-agent decision review — only when the value exceeds the coordination cost. Use before delegating to subagents or when the user asks for a team or an independent review.
 ---
 
 # Clonamic Team
@@ -28,12 +28,19 @@ Give each agent one brief: goal, the approved IDs it owns, allowed files/targets
 
 Writes to shared files are sequential: one writer at a time, then the next.
 
-## 3. Review
+## 3. Review (worker + reviewer)
 
-- ACCEPT requires every required result present, fresh evidence produced after the last change, and the user's intent preserved. Missing or stale evidence is always REJECT.
-- REJECT must list reasons, evidence, missing requirements, rework scope, and the condition for re-verification. An empty rejection is invalid.
-- Rework covers only the rejected items and their direct dependencies, and goes back to the same reviewer.
-- Each retry must be a materially different strategy. After three distinct failed strategies on the same item, stop and report a blocker.
+The reviewer is the `clonamic-reviewer` subagent shipped with this plugin ([../../agents/clonamic-reviewer.md](../../agents/clonamic-reviewer.md); Claude Code name `clonamic-harness:clonamic-reviewer`). It owns the review procedure and the ACCEPT/REJECT packet; do not restate or loosen it in the brief.
+
+1. When the worker reports done, spawn `clonamic-reviewer` with: the approved IDs (요구N/완료N, 변경N/검증N), allowed targets and exclusions, changed paths or diff, and the worker's claimed evidence.
+2. ACCEPT → the items are done; continue to `clonamic-finish`, which re-checks with its own fresh evidence.
+3. REJECT → send only the rejected items and their direct dependencies back to the worker, then to the same reviewer with the same brief plus the new change.
+4. Each retry must be a materially different strategy. After three distinct failed strategies on the same item, stop and report a blocker.
+
+Fallback when the host cannot load plugin agents (Codex):
+
+- If the host can spawn a generic subagent, spawn one with the full body of `agents/clonamic-reviewer.md` as its instructions plus the brief above.
+- Otherwise run it sequentially: finish the work, then do a separate review pass yourself, following `agents/clonamic-reviewer.md` step by step and producing its packet. Say in one line that the review was not independent.
 
 ## 4. Decision review procedure
 
@@ -49,4 +56,4 @@ No recursion and no retries of the review itself.
 
 ## 5. No subagents available
 
-Keep the chosen mode as intent, do the work directly, then run a separate local second pass against the same review rules. Say in one line that no independent review took place. Never simulate reviewer voices or claim a team was formed.
+Keep the chosen mode as intent, do the work directly, then run the sequential review from §3. Say in one line that no independent review took place. Never simulate reviewer voices or claim a team was formed.

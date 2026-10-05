@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic UI Review"
+  short_description: "Audit an existing UI with browser evidence"
+  default_prompt: "Use $clonamic-ui-review to review this UI and rank the findings."
+policy:
+  allow_implicit_invocation: true

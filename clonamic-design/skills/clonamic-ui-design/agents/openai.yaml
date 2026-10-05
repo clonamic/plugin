@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic UI Design"
+  short_description: "Design or redesign a UI with a deliberate direction"
+  default_prompt: "Use $clonamic-ui-design to design this screen and verify it in a browser."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,32 @@
+{
+  "name": "clonamic-design",
+  "version": "2.0.0",
+  "description": "UI design direction, UI review, real-browser QA, visual art, and hand-drawn diagrams that run on the host's own tools.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "repository": "https://github.com/clonamic/plugin",
+  "license": "MIT",
+  "keywords": [
+    "design",
+    "ui",
+    "accessibility",
+    "visual-qa",
+    "generative-art"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Clonamic Design",
+    "shortDescription": "UI design, UI review, browser QA, visual art, and sketch diagrams",
+    "longDescription": "Design new UIs with a deliberate direction, audit existing UIs with real-browser evidence and measured contrast, verify pages in a browser, create posters and generative art, and draw editable hand-drawn Excalidraw diagrams — all on the host's own tools.",
+    "developerName": "Clonamic",
+    "category": "Design",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Use Clonamic Design to design this screen and verify it in a browser.",
+      "Use Clonamic Design to review this UI for accessibility and hierarchy."
+    ]
+  }
+}

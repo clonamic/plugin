@@ -14,5 +14,6 @@
     "pptx",
     "presentation",
     "slides"
-  ]
+  ],
+  "repository": "https://github.com/clonamic/plugin"
 }

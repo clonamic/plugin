@@ -1,0 +1,17 @@
+{
+  "name": "clonamic-design",
+  "version": "2.0.0",
+  "description": "UI design direction, UI review, real-browser QA, visual art, and hand-drawn diagrams that run on the host's own tools.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "repository": "https://github.com/clonamic/plugin",
+  "license": "MIT",
+  "keywords": [
+    "design",
+    "ui",
+    "accessibility",
+    "visual-qa",
+    "generative-art"
+  ]
+}

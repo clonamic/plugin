@@ -22,7 +22,7 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(ROOT.name, manifest["name"])
         self.assertEqual({"name": "Clonamic"}, manifest["author"])
         self.assertEqual(
-            {"$schema", "name", "version", "description", "license", "author", "keywords"}, set(manifest)
+            {"$schema", "name", "version", "description", "license", "author", "keywords", "repository"}, set(manifest)
         )
 
     def test_skills_are_complete(self):

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic Browser QA"
+  short_description: "Verify a web UI in a real browser"
+  default_prompt: "Use $clonamic-browser-qa to screenshot and check this page across viewports."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic Sketch Diagram"
+  short_description: "Create editable hand-drawn Excalidraw diagrams"
+  default_prompt: "Use $clonamic-sketch-diagram to draw this as an Excalidraw diagram."
+policy:
+  allow_implicit_invocation: true
