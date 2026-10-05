@@ -20,6 +20,7 @@ A conservative interpretation hint, not a parser. It raises confidence; it never
 ## 2. Split multi-item input
 
 - Enumerate every requested item, quantity, file, and named target. Each becomes one numbered requirement (요구N in the spec) — never merge, drop, or batch-judge items.
+- Re-prompt once: restate the request as one or two sentences of refined intent for the current repository and situation. Use it to plan; when a 작업명세서 is due it becomes the `해석:` line under the user's `프롬프트:` so the user can confirm the reading first.
 - Keep the user's exact text for code, literals, paths, and spacing. Normalizing for your own understanding never replaces the payload you act on.
 - Track several items with the host's native todo/task tool. Process in the user's order unless they set a priority. "Do them all without stopping" means continue through the list inside the approved boundary — no extra machinery.
 
@@ -32,6 +33,7 @@ Before planning, remove anything that fails these checks; continue with the smal
 - Duplication: search for an existing function, script, or skill before writing a new one; reuse it.
 - Speculative abstraction: no options, layers, or generality nobody asked for.
 - Reasoning past evidence: stop analysing once the evidence decides the question.
+- Environment: no planned action may change the user's existing environment outside the requested scope (see `clonamic-spec` §7).
 
 This guard is read-only: it authorizes nothing. Persistent changes go through `clonamic-spec`.
 

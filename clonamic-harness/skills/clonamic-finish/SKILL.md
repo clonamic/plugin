@@ -13,6 +13,8 @@ Re-read the request and the approved specs. For every required item (완료N, ev
 - fresh evidence from this run, gathered after the final mutation: the exact required test, diff, remote or installed state, or output;
 - verdict: 완료, 미완, or 미검증.
 
+- Environment: every temporary change is reverted, and anything changed outside the project matches a declared 변경N/복구N. An unreverted change is 미완 until restored.
+
 Rules:
 
 - Judge each item separately. "Mostly done" is 미완.

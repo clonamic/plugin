@@ -106,6 +106,46 @@ class StructureTest(unittest.TestCase):
                 if "://" not in target:
                     self.assertTrue((path.parent / target).resolve().is_relative_to(ROOT), f"{path}: {target}")
 
+    def test_approval_code(self):
+        work, dev = read(FORMATS["work"]), read(FORMATS["dev"])
+        self.assertIn("승인 대기 — 작업명세서 (승인:", work)
+        self.assertIn("승인 대기 — 개발명세서 (승인:", dev)
+        self.assertRegex(work + dev, r"\(승인:[0-9A-Z]{6}\)")
+        self.assertIn("승인:CODE", read(SKILLS / "clonamic-spec" / "SKILL.md"))
+
+    def test_work_spec_opens_with_prompt_and_interpretation(self):
+        work = read(FORMATS["work"])
+        for block in work.split("```text")[1:]:
+            head = block.split("요구1:")[0]
+            self.assertIn("프롬프트:", head)
+            self.assertIn("해석:", head)
+        self.assertIn("Re-prompt once", read(SKILLS / "clonamic-intake" / "SKILL.md"))
+
+    def test_reading_is_free_and_spec_on_request(self):
+        spec = read(SKILLS / "clonamic-spec" / "SKILL.md")
+        self.assertIn("Reading is free", spec)
+        self.assertNotIn("broad audits", spec)
+        self.assertIn("The user asks for a 작업명세서", spec)
+        self.assertIn("작업명세서를 달라고 하면", read(FORMATS["work"]))
+
+    def test_environment_is_preserved(self):
+        self.assertIn("Preserve the user's environment", read(SKILLS / "clonamic-spec" / "SKILL.md"))
+        self.assertIn("Environment:", read(SKILLS / "clonamic-finish" / "SKILL.md"))
+        self.assertIn("환경:", read(FORMATS["report"]))
+        self.assertIn("사용자 환경을 지킨다", read(FORMATS["dev"]))
+
+    def test_out_of_boundary_never_stops_and_user_comes_first(self):
+        spec = read(SKILLS / "clonamic-spec" / "SKILL.md")
+        self.assertIn("explicit instruction is priority one", spec)
+        self.assertIn("승인 시 진행N", spec)
+        self.assertIn("승인 시 진행", read(FORMATS["report"]))
+
+    def test_agents_entry_point(self):
+        text = read(ROOT / "AGENTS.md")
+        for token in ("priority one", "승인:CODE", "승인 시 진행", "environment", "clonamic-spec"):
+            self.assertIn(token, text)
+        self.assertLessEqual(len(text.splitlines()), 30)
+
     def test_removed_machinery_stays_removed(self):
         for name in ("plugins", "catalog", "schemas", "clonamic.json", "clonamic-herness-plugin.md"):
             self.assertFalse((ROOT / name).exists(), name)

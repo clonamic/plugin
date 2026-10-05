@@ -12,6 +12,7 @@ Agent Plugins 1.0.0 표준을 따른다. Claude만 규격이 달라서 `.claude-
 
 - 서브에이전트는 Claude, Cursor, Grok이 플러그인에서 읽는다. Codex는 플러그인의 서브에이전트를 읽지 못하므로, 서브에이전트를 쓰는 스킬은 순차 실행 대안을 함께 적는다.
 - 플러그인과 따로 쓰는 서브에이전트는 `clonamic/subagents` 저장소에서 관리한다.
+- 하네스 규칙을 항상 켜려면 프로젝트나 전역 `AGENTS.md`에서 `clonamic-harness/AGENTS.md`를 가리킨다. Codex, Cursor, Grok은 AGENTS.md를 읽고, Claude Code는 CLAUDE.md에 `@AGENTS.md`를 넣는다.
 
 ## 원칙
 
