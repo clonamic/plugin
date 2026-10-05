@@ -24,7 +24,8 @@ Rules:
 
 - Any item 미완 and still actionable → fix it now, inside the approved boundary, then re-check. Do not stop or ask.
 - While any item remains, never ask "이어서 할까요?", "계속할까요?", "진행할까요?". Continuing is the default.
-- After three materially different failed strategies on the same item, or on a real blocker (missing credential, user-only decision, unavailable external system, a needed target outside the approved boundary), stop and write a 막힘 report. Never ask for a new approval mid-run; name what is needed on the `다음 행동:` line.
+- A needed target outside the approved boundary is not a blocker: handle it by `clonamic-spec` §6a (do it when the user explicitly instructed it or it is low risk; otherwise list it as `승인 시 진행N:`) and finish everything else.
+- Write a 막힘 report only when an in-boundary item cannot be finished: three materially different failed strategies, a missing credential, or an unavailable external system. Name what is needed on the `다음 행동:` line. Never ask for a new approval mid-run.
 - Only an all-완료 check permits a completion report.
 
 ## 3. 보고서
@@ -34,5 +35,5 @@ Write it once, in Korean, following [references/report.md](references/report.md)
 - First line: `결과: 완료 N/N` or `결과: 막힘 n/N` with the key number or cause.
 - Failures and unverified items next, before anything else (`미검증·실패: 없음` when none).
 - `결과N [완료N]` per item with verdict and fresh evidence.
-- Method change inside the approved targets (`방식 변경:`), apply/deploy/backup, residual risk, and user-only next action only when they apply.
+- Method change inside the approved targets (`방식 변경:`), out-of-boundary work done (`범위 밖 진행:`), items awaiting approval (`승인 시 진행N:`), apply/deploy/backup, residual risk, and user-only next action only when they apply.
 - Numbers over adjectives. No tool narration, request restatement, repeated conclusions, or offers to do more.

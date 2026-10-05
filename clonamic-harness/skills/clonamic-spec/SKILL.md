@@ -16,6 +16,8 @@ Both specs live in chat only; never write them to a file.
 
 A task gets **at most two approvals, ever: 작업명세서 + 개발명세서.** Aim for one. No path, revision, failure, or follow-up may produce a third.
 
+**The user's explicit instruction is priority one.** This skill never blocks something the user explicitly told you to do. Only platform actions you physically cannot perform (password, login, biometrics, OS dialogs) stay with the user.
+
 ## 2. Is intent synced?
 
 Intent is synced when the user's own words — the prompt, or their corrections to a pending spec — make all three observable without choosing between materially different readings:
@@ -54,12 +56,19 @@ Prefer the one-approval rows whenever §2 honestly holds. Before approval: no cr
 - Never ask "계속할까요?", never ask the user to run or copy a command you can run yourself.
 - A guard or permission hit caused by your own command choice inside the boundary is your defect to fix, not a reason to ask again.
 - Credentials, login, biometrics, and OS permission dialogs are platform actions, not approvals. Tell the user exactly what to do; the approval stays valid and the run resumes afterwards.
-- Unattended or scheduled runs act only within a boundary the user approved in advance. Anything outside it ends the run with `needs_authorization` in the report — never wait for a chat reply.
+- Unattended or scheduled runs follow §6a the same way and never wait for a chat reply.
 
 ## 6. After approval: never a third approval
 
-- Need a target outside the boundary, an undeclared irreversible or catastrophic effect, or a user-only decision → do not ask mid-run. Finish what the boundary allows, then stop with a 막힘 보고서 that names the target or decision (`clonamic-finish`). If the user's reply only resolves the blocker within the boundary, continue on the same approval.
 - The user changes a requirement, output, acceptance, exclusion, scope, or permission → that is a new task. The user's own message is the sync, so it gets one 개발명세서 (one-line form when tiny) and never a new 작업명세서.
+- Out-of-boundary needs follow §6a; they never become a mid-run approval.
+
+## 6a. Outside the approved boundary — never stop the run
+
+1. Finish everything inside the boundary first. An out-of-boundary need is never a reason to stop, ask mid-run, or file a 막힘 report.
+2. Explicit user instruction covers it ("바로 진행", "다 해도 돼", "묻지 말고", or a direct order naming it) → do it; list it on the 보고서 `범위 밖 진행:` line.
+3. Low risk → do it and list it on `범위 밖 진행:`. Low risk means all of: inside the project; reversible with git or a backup you made; deletes no user data; leaves the user's global environment untouched (home config, shell, installed tools, OS settings, other repositories); no deploy, publish, or push; no cost or credentials.
+4. Anything else → do not do it. List it in the 보고서 as `승인 시 진행N:` (target, change, why needed, risk, recovery). When the user approves it ("승인", or naming the item), run exactly that item with no new spec and report only that item.
 
 ## 7. Executing
 
