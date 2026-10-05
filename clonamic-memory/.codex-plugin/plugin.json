@@ -1,6 +1,6 @@
 {
   "name": "clonamic-memory",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Explicit local store, recall, forget, link, and bounded graph operations.",
   "author": {
     "name": "Clonamic"

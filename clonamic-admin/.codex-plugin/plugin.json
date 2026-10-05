@@ -1,0 +1,29 @@
+{
+  "name": "clonamic-admin",
+  "version": "2.0.0",
+  "description": "Private Clonamic administration: host configuration, model registry, agent-team factory, and folder backup procedures.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "clonamic",
+    "configuration",
+    "backup",
+    "administration"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Clonamic Admin",
+    "shortDescription": "Private host config, model registry, team factory, and backup procedures.",
+    "longDescription": "Private Clonamic administration: Claude Code and Codex global config maintenance, model registry changes, project agent-team design, and folder-to-private-GitHub backup.",
+    "developerName": "Clonamic",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Use Clonamic Host Config to add a path-scoped rule."
+    ]
+  }
+}

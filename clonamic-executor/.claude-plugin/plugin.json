@@ -1,0 +1,17 @@
+{
+  "name": "clonamic-executor",
+  "version": "2.0.0",
+  "description": "One bounded, read-only request through an installed agent CLI (Claude, Grok, or Hermes).",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "executor",
+    "delegate",
+    "claude",
+    "grok",
+    "hermes",
+    "bounded-call"
+  ]
+}

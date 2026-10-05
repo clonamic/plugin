@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-executor",
+  "version": "2.0.0",
+  "description": "One bounded, read-only request through an installed agent CLI (Claude, Grok, or Hermes).",
+  "license": "MIT",
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "executor",
+    "delegate",
+    "claude",
+    "grok",
+    "hermes",
+    "bounded-call"
+  ]
+}

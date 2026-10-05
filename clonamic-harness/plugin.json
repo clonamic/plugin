@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-harness",
+  "version": "2.0.0",
+  "description": "Stage-by-stage working discipline for AI coding agents: read the request exactly, gate persistent changes behind Korean 작업명세서/개발명세서 approvals, add agents only when they pay off, and finish with fresh-evidence verification and an outcome-first 보고서.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "homepage": "https://github.com/algocean1204/clonamic-herness-plugin",
+  "repository": "https://github.com/algocean1204/clonamic-herness-plugin",
+  "license": "MIT",
+  "keywords": [
+    "ai-harness",
+    "coding-agent",
+    "intake",
+    "approval",
+    "verification",
+    "report"
+  ]
+}

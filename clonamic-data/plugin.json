@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-data",
+  "version": "2.0.0",
+  "description": "Dataset and Hugging Face workflow guidance: proportional pre-flight, streaming, validation, private publishing.",
+  "license": "MIT",
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "datasets",
+    "hugging-face",
+    "training-data"
+  ]
+}

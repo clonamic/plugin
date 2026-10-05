@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clonamic Spec"
+  short_description: "Approve persistent changes once, then run the full loop"
+  default_prompt: "Use $clonamic-spec before applying this persistent change."

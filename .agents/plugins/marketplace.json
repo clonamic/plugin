@@ -5,22 +5,10 @@
   },
   "plugins": [
     {
-      "name": "clonamic-claude",
+      "name": "clonamic-code",
       "source": {
         "source": "local",
-        "path": "./clonamic-claude"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Executor"
-    },
-    {
-      "name": "clonamic-code-plugin",
-      "source": {
-        "source": "local",
-        "path": "./clonamic-code-plugin"
+        "path": "./clonamic-code"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -29,10 +17,10 @@
       "category": "Development"
     },
     {
-      "name": "clonamic-data-plugin",
+      "name": "clonamic-data",
       "source": {
         "source": "local",
-        "path": "./clonamic-data-plugin"
+        "path": "./clonamic-data"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -53,10 +41,10 @@
       "category": "Design"
     },
     {
-      "name": "clonamic-documents-plugin",
+      "name": "clonamic-documents",
       "source": {
         "source": "local",
-        "path": "./clonamic-documents-plugin"
+        "path": "./clonamic-documents"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -65,10 +53,10 @@
       "category": "Documents"
     },
     {
-      "name": "clonamic-grok",
+      "name": "clonamic-executor",
       "source": {
         "source": "local",
-        "path": "./clonamic-grok"
+        "path": "./clonamic-executor"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -77,22 +65,10 @@
       "category": "Executor"
     },
     {
-      "name": "clonamic-hermes",
+      "name": "clonamic-harness",
       "source": {
         "source": "local",
-        "path": "./clonamic-hermes"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Executor"
-    },
-    {
-      "name": "clonamic-herness-plugin",
-      "source": {
-        "source": "local",
-        "path": "./clonamic-herness-plugin"
+        "path": "./clonamic-harness"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -123,54 +99,6 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Memory"
-    },
-    {
-      "name": "clonamic-my-language-plugin",
-      "source": {
-        "source": "local",
-        "path": "./clonamic-my-language-plugin"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Personalization"
-    },
-    {
-      "name": "clonamic-ppt",
-      "source": {
-        "source": "local",
-        "path": "./clonamic-ppt"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Presentation"
-    },
-    {
-      "name": "clonamic-preprocessing",
-      "source": {
-        "source": "local",
-        "path": "./clonamic-preprocessing"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Workflow"
-    },
-    {
-      "name": "clonamic-writing-plugin",
-      "source": {
-        "source": "local",
-        "path": "./clonamic-writing-plugin"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Writing"
     }
   ]
 }

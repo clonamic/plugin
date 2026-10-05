@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clonamic Team"
+  short_description: "Add agents only when they pay for their coordination cost"
+  default_prompt: "Use $clonamic-team to decide whether this task needs subagents or a review."

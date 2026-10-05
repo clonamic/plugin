@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clonamic Finish"
+  short_description: "Prove every requirement, then report outcome first"
+  default_prompt: "Use $clonamic-finish to verify this task and write the report."

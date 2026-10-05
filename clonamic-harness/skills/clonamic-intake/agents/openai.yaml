@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clonamic Intake"
+  short_description: "Read the request exactly before acting"
+  default_prompt: "Use $clonamic-intake to pin down what this request asks for before starting."

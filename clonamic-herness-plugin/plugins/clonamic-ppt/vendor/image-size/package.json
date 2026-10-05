@@ -1,7 +1,0 @@
-{
-  "name": "image-size",
-  "version": "0.1.0",
-  "description": "Fail-closed image input guard for the image-free Clonamic renderer",
-  "main": "index.js",
-  "license": "MIT"
-}

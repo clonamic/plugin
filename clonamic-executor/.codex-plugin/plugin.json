@@ -1,0 +1,31 @@
+{
+  "name": "clonamic-executor",
+  "version": "2.0.0",
+  "description": "One bounded, read-only request through an installed agent CLI (Claude, Grok, or Hermes).",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "executor",
+    "delegate",
+    "claude",
+    "grok",
+    "hermes",
+    "bounded-call"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Clonamic Executor",
+    "shortDescription": "One bounded read-only request through an installed agent CLI.",
+    "longDescription": "Send one bounded, read-only, no-tools request to the installed Claude, Grok, or Hermes CLI and return its JSON result, with timeout, output cap, redaction, and recursion guard.",
+    "developerName": "Clonamic",
+    "category": "Executor",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Use Clonamic Delegate to ask the grok CLI for a second opinion."
+    ]
+  }
+}

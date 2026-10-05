@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-admin",
+  "version": "2.0.0",
+  "description": "Private Clonamic administration: host configuration, model registry, agent-team factory, and folder backup procedures.",
+  "license": "MIT",
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "clonamic",
+    "configuration",
+    "backup",
+    "administration"
+  ]
+}

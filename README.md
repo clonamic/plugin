@@ -1,74 +1,90 @@
-# 플러그인 규칙 : 플러그인 표준 1.0.0 을 따른다.
-- claude만 다른 규격을 사용하므로 필요에 따라 추가 폴더로 구조 명시. 
+# 플러그인 규칙
+
+Agent Plugins 1.0.0 표준을 따른다. Claude만 규격이 달라서 `.claude-plugin/`을 추가하는데, 이 파일은 손으로 쓰지 않고 스크립트로 만든다(아래 "매니페스트 동기화").
+
+## 원칙
+
+- **플러그인 하나 = 역할 하나, 스킬 하나 = 일 하나.** 기능이 겹치면 합친다.
+- **스킬에는 방향, 지시, 절차, 품질 기준, 예시를 담는다.** Claude Code, Codex, Cursor, Grok Build는 셸, 파일, 브라우저, 서브에이전트를 직접 쓸 수 있다. 호스트가 할 수 있는 일을 자체 엔진으로 다시 만들지 않는다. 스크립트는 결정적이고 작으며, 모델이 손으로 하는 것보다 확실히 나을 때만 둔다(예: 바이트 단위 검증기, 호스트에 없는 형식 변환기).
+- **라우터 스킬을 만들지 않는다.** 스킬 선택은 호스트가 `description`을 보고 한다.
+- **`skills/` 아래 폴더에는 반드시 SKILL.md가 있다.** 참고 자료만 든 폴더는 해당 스킬의 `references/`에 넣는다.
+- **언어**
+  - 사용자가 읽는 것(보고서, 명세서 양식, 한국어 글쓰기 지침, 출력 예시): 한국어
+  - 내부의 여러 단계 절차, 토큰이 많이 드는 운영 지시, 에이전트 사이의 계약: 영어
+  - 출력이 한국어여야 하는 스킬(예: clonamic-korean): 본문을 한국어로 쓴다. 영어 지시는 영어 출력을 끌어내기 쉽다.
+- **명시 호출 스킬**은 frontmatter에 `disable-model-invocation: true`, `user-invocable: true`를 넣고, 본문에도 슬래시 명령으로만 실행한다고 적는다.
+
+## 기본 구조
 
 ```text
 plugin-name/
-├── plugin.json                      # 필수. Agent Plugins 1.0.0 매니페스트
-├── skills/                          # 스킬 고정 위치. 직계 자식만 탐색
+├── plugin.json                  # 원본 매니페스트. 손으로 고치는 유일한 매니페스트
+├── .claude-plugin/plugin.json   # 생성. Claude Code
+├── .codex-plugin/plugin.json    # 생성. Codex UI(interface)
+├── skills/
 │   └── skill-name/
-│       ├── SKILL.md                 # 필수. YAML frontmatter + 지시문
-│       ├── scripts/                 # 선택. 실행 코드
-│       ├── references/              # 선택. 필요 시 읽는 문서
-│       └── assets/                  # 선택. 템플릿·리소스
-├── mcp.json                         # 선택. MCP 서버 설정
-├── com.example.client/              # 선택. 호스트 확장(역도메인 디렉터리)
-├── LICENSE                          # 선택. 라이선스
-└── CHANGELOG.md                     # 선택. 변경 기록
+│       ├── SKILL.md             # 필수. frontmatter(name, description) + 절차
+│       ├── references/          # 선택. 필요할 때만 읽는 문서
+│       ├── scripts/             # 선택. 이 스킬만 쓰는 작은 스크립트
+│       └── assets/              # 선택. 결과물에 넣는 템플릿·파일
+├── agents/                      # 선택. 서브에이전트(Claude·Grok·Cursor). 없어도 스킬이 동작해야 함
+├── mcp.json                     # 선택. MCP 서버
+├── tests/
+├── LICENSE
+└── THIRD_PARTY_NOTICES.md       # 외부 자료를 가져왔을 때만
 ```
 
+## 코드를 쓰는 플러그인
 
-### 변형
+Python은 **3.12 이상**(`requires-python = ">=3.12"`)을 쓴다.
+사용자 PC의 `python3`가 3.12 이상이면 그대로 쓰고, 아니면 SKILL.md가 설치를 안내한다(`uv python install 3.12` 또는 OS 패키지 관리자). 더 낮은 버전으로 조용히 넘어가지 않는다.
+
+**스크립트가 한 스킬에서만 쓰이면** 스킬 안에 둔다. 대부분은 이것으로 충분하다.
+
+```text
+skills/skill-name/scripts/tool.py   # 표준 라이브러리만. python3 tool.py <명령>
+```
+
+**여러 스킬이 같은 코드를 쓸 때만** 플러그인 루트에 패키지를 둔다.
+
 ```text
 my-plugin/
-├── README.md                      # 플러그인 목적, 스킬 관계, 트리, 설치, 실행 계약
-├── plugin.json                    # 1.0.0. Codex·Grok이 읽음
-├── .python-version                # 3.12
-├── pyproject.toml                 # requires-python >=3.12,<3.13
-├── requirements.txt
-├── .gitignore                     # .venv/
-├── scripts/
-│   └── bootstrap.py               # .venv 생성 후 requirements 설치
-├── .claude-plugin/
-│   └── plugin.json                # 클로드 전용. name은 루트와 동일
-├── src/plugin_core/
-│   ├── __init__.py
-│   ├── __main__.py                # 단일 진입점
-│   ├── router.py                  # 분기 결정은 여기만
-│   ├── contracts.py               # 스킬 간 JSON 계약
-│   ├── branches/
-│   │   ├── intake.py
-│   │   ├── path_a.py
-│   │   └── path_b.py
-│   └── lib/                       # 공통 유틸. 스킬이 직접 호출하지 않음
+├── plugin.json
+├── README.md                    # 목적, 스킬 관계, 실행 계약
+├── pyproject.toml               # requires-python >=3.12. 외부 의존성이 있을 때만
+├── src/my_plugin/
+│   ├── __main__.py              # 진입점 하나. python3 -m my_plugin <명령>
+│   ├── commands/                # 명령 하나 = 스킬 하나
+│   └── core/                    # 공통 로직과 스킬 사이 계약
 ├── skills/
-│   ├── intake/
-│   │   ├── SKILL.md               # 정규화 후 route 호출, a/b로 넘김
-│   │   └── examples/sample.json
-│   ├── path-a/
-│   │   └── SKILL.md               # run --branch a 만
-│   └── path-b/
-│       └── SKILL.md               # run --branch b 만
+│   └── skill-name/SKILL.md      # 명령 한 줄로 호출. 분기 판단은 description과 본문이 맡는다
 └── tests/
-    ├── test_router.py
-    └── fixtures/
 ```
-### 매니페스트 동기화
+
+- 외부 패키지가 꼭 필요하면 스크립트 머리에 PEP 723 메타데이터(`# /// script`, `requires-python`, `dependencies`)를 적고 `uv run`으로 실행한다.
+- `.venv`를 플러그인 폴더에 만들지 않는다. Claude와 Codex는 플러그인을 버전별 캐시 폴더에 설치하고, 업데이트하면 그 폴더를 통째로 바꾼다.
+- `requirements.txt`, `.python-version`, `bootstrap.py`는 두지 않는다. 버전과 의존성 정보는 한 곳에만 둔다.
+- 플러그인 루트의 `src/`를 참조하는 스킬은 플러그인 단위로 설치해야 동작한다. 스킬 폴더만 따로 복사하면 동작하지 않는다.
+
+## 매니페스트 동기화
+
 손으로 고치는 매니페스트는 각 플러그인의 루트 `plugin.json` 하나다. 나머지는 스크립트가 만든다.
 
 ```text
-plugin.json                        # 원본. $schema 필수, 표준 키만, 이름은 [a-z0-9-]
-.claude-plugin/plugin.json         # 생성. Claude Code
-.codex-plugin/plugin.json          # 생성. Codex UI. interface는 여기서 직접 고치고 유지됨
-.cursor-plugin/plugin.json         # 생성. agents/가 있는 플러그인만
-../.claude-plugin/marketplace.json # 생성. Claude·Cursor·Grok(Codex도 읽음)
-../.agents/plugins/marketplace.json# 생성. Codex
+plugin.json                          # 원본. $schema 필수, 표준 키만, 이름은 [a-z0-9-]
+.claude-plugin/plugin.json           # 생성. Claude Code
+.codex-plugin/plugin.json            # 생성. Codex UI. interface는 이 파일에서 직접 고치면 유지됨
+.cursor-plugin/plugin.json           # 생성. agents/가 있는 플러그인만
+../.claude-plugin/marketplace.json   # 생성. Claude·Cursor·Grok(Codex도 읽음)
+../.agents/plugins/marketplace.json  # 생성. Codex
+clonamic-harness/skills/*/references # 생성. ../template/의 명세서·보고서 양식을 복사
 ```
 
 ```bash
-python3 scripts/sync_manifests.py          # 루트 plugin.json을 고친 뒤 실행
-python3 scripts/sync_manifests.py --check  # 커밋 전 확인. tests/test_manifests.py도 같은 검사
+python3 scripts/sync_manifests.py          # 루트 plugin.json이나 template을 고친 뒤 실행
+python3 scripts/sync_manifests.py --check  # 커밋 전 확인. tests/test_manifests.py도 같은 검사를 한다
 ```
 
-- `"skills": "./skills/"`는 루트에 넣지 않는다. 표준 스키마에 없고, `skills/`는 자동 탐색된다.
+- `"skills": "./skills/"`는 루트에 넣지 않는다. 표준 스키마에 없는 키이고, `skills/`는 자동으로 탐색된다.
 - 역도메인 폴더(`io.github.*/`)는 어느 호스트도 읽지 않는다. 만들지 않는다.
-- 비공개 플러그인은 `UNLISTED`에 넣으면 마켓플레이스에서 빠진다.
+- 비공개 플러그인은 `UNLISTED`에 넣으면 마켓플레이스 목록에서 빠진다.

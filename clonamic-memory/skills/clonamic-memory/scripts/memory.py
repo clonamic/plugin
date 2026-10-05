@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sqlite3
+import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -825,4 +826,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    if sys.version_info < (3, 12):
+        raise SystemExit("Python 3.12+ is required")
     raise SystemExit(main())

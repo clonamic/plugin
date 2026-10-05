@@ -1,14 +1,16 @@
 {
   "name": "clonamic-korean",
-  "version": "1.0.1",
-  "description": "Explicit Korean prose revision that keeps facts fixed and removes translated rhythm.",
+  "version": "2.0.0",
+  "description": "Write and revise natural Korean documents (resumes, portfolios, reports, posts, docs) with one explicit /clonamic-korean command that keeps facts, numbers, quotes, and the author's voice fixed.",
   "author": {
     "name": "Clonamic"
   },
   "license": "MIT",
   "keywords": [
     "korean",
+    "writing",
+    "revision",
     "prose",
-    "revision"
+    "documents"
   ]
 }

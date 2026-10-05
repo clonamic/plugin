@@ -11,9 +11,7 @@ SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
 
 
 def plugins() -> list[Path]:
-    found = [p.parent for p in REPO.glob("clonamic-*/plugin.json")]
-    found += [p.parent for p in REPO.glob("clonamic-herness-plugin/plugins/*/plugin.json")]
-    return sorted(found)
+    return sorted(p.parent for p in REPO.glob("clonamic-*/plugin.json"))
 
 
 class ManifestSyncTest(unittest.TestCase):

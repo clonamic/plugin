@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-code",
+  "version": "2.0.0",
+  "description": "Evidence-based modular design and guarded, verified code patching.",
+  "license": "MIT",
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "coding",
+    "architecture",
+    "debugging",
+    "verification"
+  ]
+}

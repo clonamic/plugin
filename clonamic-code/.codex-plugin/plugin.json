@@ -1,0 +1,29 @@
+{
+  "name": "clonamic-code",
+  "version": "2.0.0",
+  "description": "Evidence-based modular design and guarded, verified code patching.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "coding",
+    "architecture",
+    "debugging",
+    "verification"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Clonamic Code",
+    "shortDescription": "Evidence-based modular design and guarded, verified code patching.",
+    "longDescription": "Design justified module boundaries for new systems or large refactors, and apply approved non-trivial patches with stale-file, ambiguity, and verification guards.",
+    "developerName": "Clonamic",
+    "category": "Development",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Use Clonamic Modular Design for this refactor."
+    ]
+  }
+}

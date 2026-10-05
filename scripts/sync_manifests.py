@@ -9,6 +9,7 @@ Codex, Cursor, and Grok read it directly; this script writes the rest:
   <plugin>/.cursor-plugin/plugin.json   Cursor, only when the plugin ships agents/
   .claude-plugin/marketplace.json       Claude Code, Cursor, Grok (Codex also reads it)
   .agents/plugins/marketplace.json      Codex
+  clonamic-harness/skills/*/references  copies of ../template/ spec and report formats
 
 Usage:
   python3 scripts/sync_manifests.py          # rewrite derived files
@@ -39,14 +40,18 @@ MARKETPLACE = "clonamic"
 OWNER = {"name": "Clonamic"}
 DESCRIPTION = "Clonamic skills for Claude Code, Codex, Cursor, and Grok."
 # Kept out of the public marketplaces; manifests are still maintained.
-UNLISTED = frozenset({"clonamic-harness-admin-plugin"})
+UNLISTED = frozenset({"clonamic-admin"})
+# ../template/ is the single source for the spec and report formats; the harness ships copies.
+TEMPLATE_DIR = REPO.parent / "template"
+TEMPLATE_COPIES = {
+    "작업명세서.md": "clonamic-harness/skills/clonamic-spec/references/work-spec.md",
+    "개발명세서.md": "clonamic-harness/skills/clonamic-spec/references/dev-spec.md",
+    "보고서.md": "clonamic-harness/skills/clonamic-finish/references/report.md",
+}
 
 
 def plugin_dirs() -> list[Path]:
-    """Top-level plugins plus the copies bundled inside clonamic-herness-plugin."""
-    found = [p.parent for p in REPO.glob("clonamic-*/plugin.json")]
-    found += [p.parent for p in REPO.glob("clonamic-herness-plugin/plugins/*/plugin.json")]
-    return sorted(found)
+    return sorted(p.parent for p in REPO.glob("clonamic-*/plugin.json"))
 
 
 def read_json(path: Path) -> dict | None:
@@ -114,6 +119,13 @@ def marketplaces(listed: list[tuple[Path, dict]]) -> dict[Path, str]:
     }
 
 
+def template_copies() -> dict[Path, str]:
+    """Skipped when the plugin repo is checked out without its sibling template/ repo."""
+    if not TEMPLATE_DIR.is_dir():
+        return {}
+    return {REPO / target: (TEMPLATE_DIR / source).read_text(encoding="utf-8") for source, target in TEMPLATE_COPIES.items()}
+
+
 def validate(plugin: Path, raw: dict) -> list[str]:
     rel = plugin.relative_to(REPO)
     problems = []
@@ -150,10 +162,13 @@ def main() -> int:
             listed.append((plugin, root))
         problems += validate(plugin, raw) if args.check else []
     wanted.update(marketplaces(listed))
+    wanted.update(template_copies())
 
     stale = [path for path, text in wanted.items() if not path.is_file() or path.read_text(encoding="utf-8") != text]
+    orphans = [p for p in REPO.glob("clonamic-*/.cursor-plugin/plugin.json") if p not in wanted]
     if args.check:
         problems += [f"{p.relative_to(REPO)}: out of date; run python3 scripts/sync_manifests.py" for p in stale]
+        problems += [f"{p.relative_to(REPO)}: plugin has no agents/; run sync to remove it" for p in orphans]
         for line in problems:
             print(line, file=sys.stderr)
         return 1 if problems else 0
@@ -162,6 +177,10 @@ def main() -> int:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(wanted[path], encoding="utf-8")
         print(f"wrote {path.relative_to(REPO)}")
+    for path in orphans:
+        path.unlink()
+        path.parent.rmdir()
+        print(f"removed {path.relative_to(REPO)}")
     print(f"{len(stale)} file(s) updated, {len(wanted) - len(stale)} already current")
     return 0
 

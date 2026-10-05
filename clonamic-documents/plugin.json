@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-documents",
+  "version": "2.0.0",
+  "description": "Office documents built with the host's own tools: Korean HWPX editing with a structure validator, and editable PPTX decks with render-based QA.",
+  "license": "MIT",
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "documents",
+    "hwpx",
+    "hancom",
+    "pptx",
+    "presentation",
+    "slides"
+  ]
+}

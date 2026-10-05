@@ -1,0 +1,28 @@
+{
+  "name": "clonamic-data",
+  "version": "2.0.0",
+  "description": "Dataset and Hugging Face workflow guidance: proportional pre-flight, streaming, validation, private publishing.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "license": "MIT",
+  "keywords": [
+    "datasets",
+    "hugging-face",
+    "training-data"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Clonamic Data",
+    "shortDescription": "Dataset and Hugging Face workflow guidance.",
+    "longDescription": "Build, clean, validate, and privately publish datasets with proportional storage pre-flight, streaming, and a JSONL validation gate.",
+    "developerName": "Clonamic",
+    "category": "Data",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Use Clonamic Dataset Work to validate this JSONL before upload."
+    ]
+  }
+}

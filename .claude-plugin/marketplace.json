@@ -6,19 +6,14 @@
   "description": "Clonamic skills for Claude Code, Codex, Cursor, and Grok.",
   "plugins": [
     {
-      "name": "clonamic-claude",
-      "source": "./clonamic-claude",
-      "description": "One bounded call through the installed Claude CLI."
+      "name": "clonamic-code",
+      "source": "./clonamic-code",
+      "description": "Evidence-based modular design and guarded, verified code patching."
     },
     {
-      "name": "clonamic-code-plugin",
-      "source": "./clonamic-code-plugin",
-      "description": "Proportional coding workflows, safe patching, modular design, and explicit bounded adversarial review."
-    },
-    {
-      "name": "clonamic-data-plugin",
-      "source": "./clonamic-data-plugin",
-      "description": "Optional dataset and Hugging Face workflow guidance."
+      "name": "clonamic-data",
+      "source": "./clonamic-data",
+      "description": "Dataset and Hugging Face workflow guidance: proportional pre-flight, streaming, validation, private publishing."
     },
     {
       "name": "clonamic-design-plugin",
@@ -26,54 +21,29 @@
       "description": "Optional design, browser QA, visual systems, and media-art skills."
     },
     {
-      "name": "clonamic-documents-plugin",
-      "source": "./clonamic-documents-plugin",
-      "description": "Optional HWPX and document-specialist workflows."
+      "name": "clonamic-documents",
+      "source": "./clonamic-documents",
+      "description": "Office documents built with the host's own tools: Korean HWPX editing with a structure validator, and editable PPTX decks with render-based QA."
     },
     {
-      "name": "clonamic-grok",
-      "source": "./clonamic-grok",
-      "description": "One bounded call through the installed Grok CLI."
+      "name": "clonamic-executor",
+      "source": "./clonamic-executor",
+      "description": "One bounded, read-only request through an installed agent CLI (Claude, Grok, or Hermes)."
     },
     {
-      "name": "clonamic-hermes",
-      "source": "./clonamic-hermes",
-      "description": "One bounded call through the installed Hermes CLI."
-    },
-    {
-      "name": "clonamic-herness-plugin",
-      "source": "./clonamic-herness-plugin",
-      "description": "Portable intent control, proportional team routing, write approval, completion verification, and concise reporting for AI coding agents."
+      "name": "clonamic-harness",
+      "source": "./clonamic-harness",
+      "description": "Stage-by-stage working discipline for AI coding agents: read the request exactly, gate persistent changes behind Korean 작업명세서/개발명세서 approvals, add agents only when they pay off, and finish with fresh-evidence verification and an outcome-first 보고서."
     },
     {
       "name": "clonamic-korean",
       "source": "./clonamic-korean",
-      "description": "Explicit Korean prose revision that keeps facts fixed and removes translated rhythm."
+      "description": "Write and revise natural Korean documents (resumes, portfolios, reports, posts, docs) with one explicit /clonamic-korean command that keeps facts, numbers, quotes, and the author's voice fixed."
     },
     {
       "name": "clonamic-memory",
       "source": "./clonamic-memory",
       "description": "Explicit local store, recall, forget, link, and bounded graph operations."
-    },
-    {
-      "name": "clonamic-my-language-plugin",
-      "source": "./clonamic-my-language-plugin",
-      "description": "Explicit local prompt capture, observable style profiling, and portable profile export."
-    },
-    {
-      "name": "clonamic-ppt",
-      "source": "./clonamic-ppt",
-      "description": "Create editable widescreen presentations through a deterministic layout and QA engine."
-    },
-    {
-      "name": "clonamic-preprocessing",
-      "source": "./clonamic-preprocessing",
-      "description": "Deterministic input normalization, clarification packets, priority queues, and explicit loop_auto."
-    },
-    {
-      "name": "clonamic-writing-plugin",
-      "source": "./clonamic-writing-plugin",
-      "description": "Optional publication writing and deterministic final prose cleanup."
     }
   ]
 }
