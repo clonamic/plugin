@@ -1,0 +1,161 @@
+"""Idempotent local write: dated entry block, state.json, index.md, Notion ids, portfolio roll-up."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from collections import Counter
+from datetime import date
+from pathlib import Path
+
+from common import TaskLogError, project_identity, write_json, write_text_atomic
+
+BEGIN = "<!-- task-log:begin key={key} fingerprint={fp} -->"
+END = "<!-- task-log:end key={key} -->"
+NOTION_KINDS = {"root", "project", "log", "progress", "portfolio", "day"}
+
+
+def evidence_fingerprint(run_date: str, key: str, commits: list[dict], excluded: list[dict]) -> str:
+    """sha256 over normalized evidence: date, key, and per commit (sha, date, lines, files, exclusion)."""
+    reasons = {e["sha"]: e["reason"] for e in excluded}
+    rows = sorted(
+        [c["sha"], c["date"], c["added"], c["deleted"], c["file_count"], reasons.get(c["sha"], "")] for c in commits
+    )
+    payload = json.dumps({"date": run_date, "key": key, "commits": rows}, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def body_hash(text: str) -> str:
+    return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
+
+
+def strip_title(entry: str) -> str:
+    lines = entry.strip().splitlines()
+    if lines and lines[0].startswith("# "):
+        lines = lines[1:]
+    return "\n".join(lines).strip()
+
+
+def merge_block(existing: str, run_date: str, key: str, fingerprint: str, body: str) -> str:
+    block = f"{BEGIN.format(key=key, fp=fingerprint)}\n{body}\n{END.format(key=key)}"
+    pattern = re.compile(
+        re.escape("<!-- task-log:begin key=" + key + " ") + r"fingerprint=\S+ -->.*?" + re.escape(END.format(key=key)),
+        re.DOTALL,
+    )
+    if not existing.strip():
+        return f"# {run_date} 작업 기록\n\n{block}\n"
+    if pattern.search(existing):
+        return pattern.sub(lambda _: block, existing, count=1)
+    return existing.rstrip() + "\n\n" + block + "\n"
+
+
+def headline(body: str) -> str:
+    m = re.search(r"^\s*-\s*핵심 성과\s*(?:—|:)\s*(.+)$", body, re.MULTILINE)
+    return m.group(1).strip() if m else ""
+
+
+def write_entry(repo: Path, logs: Path, state: dict, run: dict, entry: str, today: date,
+                replace_past: bool = False) -> dict:
+    run_date, key, fingerprint = run["date"], run["key"], run["fingerprint"]
+    body = strip_title(entry)
+    digest = body_hash(body)
+    day = state["days"].setdefault(run_date, {"blocks": {}})
+    old = day["blocks"].get(key)
+    path = logs / f"{run_date}.md"
+    if old and old.get("fingerprint") == fingerprint and old.get("body_sha") == digest and path.is_file():
+        return {"status": "unchanged", "file": str(path)}
+    if old and date.fromisoformat(run_date) < today and not replace_past:
+        raise TaskLogError(
+            f"{run_date} already has a '{key}' entry; past dates are never overwritten automatically",
+            "지난 날짜 기록을 새 근거로 다시 정리하려면 사용자가 명시적으로 요청한 경우에만 --replace-past 로 다시 실행하세요.",
+        )
+    existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+    write_text_atomic(path, merge_block(existing, run_date, key, fingerprint, body))
+
+    state.setdefault("project", project_identity(repo))
+    day["blocks"][key] = {
+        "fingerprint": fingerprint,
+        "body_sha": digest,
+        "headline": headline(body),
+        "period": run["period"],
+        "considered": run["considered"],
+        "patches": run.get("patches", []),
+        "types": run["types"],
+        "notion_title": run["notion_title"],
+    }
+    state["processed"] = sorted(set(state["processed"]) | set(run["considered"]))
+    state["processed_patches"] = sorted(set(state.get("processed_patches", [])) | set(run.get("patches", [])))
+    if key == "daily":
+        state["cursors"].update(run["heads"])
+    for item in run["progress"]:
+        old_feature = state["features"].get(item["feature"], {})
+        prev = old_feature.get("prev") if old_feature.get("updated") == run_date else old_feature.get("pct")
+        state["features"][item["feature"]] = {"pct": item["pct"], "basis": item["basis"], "updated": run_date,
+                                              "prev": prev}
+    if run.get("work_unit"):
+        state["work_unit"] = {k: run["work_unit"].get(k) for k in ("label", "start", "end", "pct", "commits")}
+    kept = [m for m in state["metrics"] if not (m["date"] == run_date and m.get("key") == key)]
+    state["metrics"] = kept + [m | {"date": run_date, "key": key} for m in run["metrics"]]
+    state["last_run"] = run["generated_at"]
+    write_json(logs / "state.json", state)
+    write_text_atomic(logs / "index.md", render_index(state, run["project"]))
+    return {"status": "written", "file": str(path), "fingerprint": fingerprint}
+
+
+def render_index(state: dict, project: str) -> str:
+    days = sorted(state["days"], reverse=True)
+    lines = ["# 작업 기록 색인", "", "## 한눈에 보기", f"- 프로젝트 — {project}",
+             f"- 기록 — {len(days)}일" + (f", 최근 {days[0]}" if days else ""), "", "## 타임라인"]
+    for day in days:
+        for key, block in sorted(state["days"][day]["blocks"].items()):
+            suffix = "" if key == "daily" else f" ({block['period'].get('from', '')}~{block['period'].get('to', '')})"
+            lines.append(f"- [{day}]({day}.md){suffix} — {block.get('headline') or '기록'}")
+    if state["features"]:
+        lines += ["", "## 기능별 진행 정도 (추정)", "", "| 기능 | 진행 | 근거 | 갱신 |", "|---|---|---|---|"]
+        for label, item in sorted(state["features"].items()):
+            lines.append(f"| {label} | {item['pct']}% | {item['basis']} | {item['updated']} |")
+    if unit := state.get("work_unit"):
+        lines += ["", "## 작업 단위", f"- {unit['label']} — {unit.get('start', '')}~{unit.get('end') or ''}"
+                  + (f", 진행 {unit['pct']}% (추정)" if unit.get("pct") is not None else "")]
+    return "\n".join(lines) + "\n"
+
+
+def set_notion(repo: Path, logs: Path, state: dict, kind: str, page_id: str, url: str = "", day: str = "",
+               title: str = "") -> dict:
+    if kind not in NOTION_KINDS:
+        raise TaskLogError(f"unknown notion kind {kind!r}", f"--kind 는 {sorted(NOTION_KINDS)} 중 하나입니다.")
+    record = {"id": page_id, "url": url, "title": title}
+    state.setdefault("project", project_identity(repo))
+    if kind == "day":
+        if not day:
+            raise TaskLogError("--date is required for kind=day")
+        state["notion"].setdefault("days", {})[day] = record
+    else:
+        state["notion"][kind] = record
+    write_json(logs / "state.json", state)
+    return {"status": "recorded", "kind": kind}
+
+
+def portfolio_rollup(state: dict, project: str, part: str) -> dict:
+    days = sorted(state["days"])
+    types: Counter[str] = Counter()
+    highlights = []
+    for day in days:
+        for key, block in sorted(state["days"][day]["blocks"].items()):
+            types.update(block.get("types", {}))
+            if block.get("headline"):
+                highlights.append({"date": day, "headline": block["headline"]})
+    return {
+        "project": project,
+        "part": part,
+        "period": {"from": days[0] if days else "", "to": days[-1] if days else ""},
+        "days": len(days),
+        "work_by_type": dict(types.most_common()),
+        "features": [{"feature": k} | v for k, v in sorted(state["features"].items())],
+        "metrics": state["metrics"],
+        "highlights": highlights,
+        "work_unit": state.get("work_unit"),
+        "notion": state["notion"].get("portfolio"),
+    }

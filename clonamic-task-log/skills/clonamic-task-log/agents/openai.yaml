@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic Task Log"
+  short_description: "Turn your git work into a portfolio-ready Korean work log on an explicit command"
+  default_prompt: "Use $clonamic-task-log to log my work in this project."
+policy:
+  allow_implicit_invocation: false

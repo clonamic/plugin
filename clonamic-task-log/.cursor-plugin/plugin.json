@@ -1,0 +1,19 @@
+{
+  "name": "clonamic-task-log",
+  "version": "1.0.0",
+  "description": "Turn your own git work in the current project into a dated, portfolio-ready Korean work log with one explicit /clonamic-task-log command: local log files plus Notion pages, with importance scoring, estimated feature progress, and a redaction gate that keeps file names and secrets out.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "repository": "https://github.com/clonamic/plugin",
+  "license": "MIT",
+  "keywords": [
+    "work-log",
+    "portfolio",
+    "git",
+    "notion",
+    "korean"
+  ],
+  "skills": "./skills/",
+  "agents": "./agents/"
+}

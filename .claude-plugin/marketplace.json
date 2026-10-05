@@ -49,6 +49,11 @@
       "name": "clonamic-memory",
       "source": "./clonamic-memory",
       "description": "Explicit local store, recall, forget, link, and bounded graph operations."
+    },
+    {
+      "name": "clonamic-task-log",
+      "source": "./clonamic-task-log",
+      "description": "Turn your own git work in the current project into a dated, portfolio-ready Korean work log with one explicit /clonamic-task-log command: local log files plus Notion pages, with importance scoring, estimated feature progress, and a redaction gate that keeps file names and secrets out."
     }
   ]
 }
