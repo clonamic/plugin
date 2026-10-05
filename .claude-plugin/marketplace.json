@@ -8,7 +8,7 @@
     {
       "name": "clonamic-code",
       "source": "./clonamic-code",
-      "description": "Evidence-based modular design and guarded, verified code patching."
+      "description": "Evidence-based modular design: library-style modules with single responsibilities, explicit contracts, and migration order."
     },
     {
       "name": "clonamic-data",
@@ -29,6 +29,11 @@
       "name": "clonamic-executor",
       "source": "./clonamic-executor",
       "description": "One bounded, read-only request through an installed agent CLI (Claude, Grok, or Hermes)."
+    },
+    {
+      "name": "clonamic-git",
+      "source": "./clonamic-git",
+      "description": "Git commits, PRs, tags, and release notes under the user's own identity with no AI attribution trailers, footers, or bot authors."
     },
     {
       "name": "clonamic-harness",

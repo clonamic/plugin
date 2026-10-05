@@ -1,7 +1,7 @@
 {
   "name": "clonamic-code",
-  "version": "2.0.0",
-  "description": "Evidence-based modular design and guarded, verified code patching.",
+  "version": "2.1.0",
+  "description": "Evidence-based modular design: library-style modules with single responsibilities, explicit contracts, and migration order.",
   "author": {
     "name": "Clonamic"
   },
@@ -10,7 +10,6 @@
   "keywords": [
     "coding",
     "architecture",
-    "debugging",
-    "verification"
+    "modular-design"
   ]
 }

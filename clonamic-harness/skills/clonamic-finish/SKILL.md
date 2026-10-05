@@ -34,8 +34,7 @@ Rules:
 
 Write it once, in Korean, following [references/report.md](references/report.md) exactly. Essentials:
 
-- First line: `결과: 완료 N/N` or `결과: 막힘 n/N` with the key number or cause.
-- Failures and unverified items next, before anything else (`미검증·실패: 없음` when none).
-- `결과N [완료N]` per item with verdict and fresh evidence.
+- Top-down and outline form: open with `## 핵심 요약` — line 1 `완료 N/N` or `막힘 n/N` with the key number or cause, line 2 `미검증·실패:` (`없음` when none). Everything else is short bullet lists under headings, never prose paragraphs; drop sections that do not apply.
+- `## 결과`: `결과N [완료N]` per item with verdict and fresh evidence.
 - Method change inside the approved targets (`방식 변경:`), out-of-boundary work done (`범위 밖 진행:`), items awaiting approval (`승인 시 진행N:`), apply/deploy/backup, residual risk, and user-only next action only when they apply.
 - Numbers over adjectives. No tool narration, request restatement, repeated conclusions, or offers to do more.

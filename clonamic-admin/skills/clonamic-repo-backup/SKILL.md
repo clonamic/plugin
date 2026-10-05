@@ -17,7 +17,7 @@ One pipeline, five stages. Later runs skip every stage already satisfied — a c
 2. **Repo** — `gh repo view <owner/repo>` fails → `gh repo create <owner/repo> --private -d "Backup of <folder-name>"`. PRIVATE always; public only on an explicit user order in chat.
 3. **Git wiring** (idempotent) — `git init -b main` if no repo; verify/set `remote origin git@github.com:<owner/repo>.git`; repo-local auth (this machine's default SSH key is a different account): set `git config core.sshCommand "ssh -i <key> -o IdentitiesOnly=yes"` + `user.name` + `user.email` with the account/key facts from `~/.agents/user/profile/identity.md` (single source — never hardcode here).
 4. **Secret gate** (fail-closed, same patterns as push-skillbook.sh) — `rg` for `sk-ant-…|gh[pousr]_…|github_pat_…|hf_…|xox[baprs]-…|AKIA…|xai-…|sk-proj-…|AIza…|PRIVATE KEY`; any hit → STOP, show hits, never push. Tracked `auth.json`/`.env*`/`credentials*`/`*.pem`/`id_rsa*` → move to `.gitignore`, never commit.
-5. **Sync + push** — `git add -A`; single commit `Backup <YYYY-MM-DD HH:MM>` (no AI attribution); `git push -u origin main`. Nothing staged but upstream behind → push the stranded commit. Nothing at all → report `in-sync`.
+5. **Sync + push** — `git add -A`; single commit `Backup <YYYY-MM-DD HH:MM>`, written per the `clonamic-commit` skill of the `clonamic-git` plugin (user's identity, no AI trace); `git push -u origin main`. Nothing staged but upstream behind → push the stranded commit. Nothing at all → report `in-sync`.
 
 ## Rules
 

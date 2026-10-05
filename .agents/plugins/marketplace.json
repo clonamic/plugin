@@ -65,6 +65,18 @@
       "category": "Executor"
     },
     {
+      "name": "clonamic-git",
+      "source": {
+        "source": "local",
+        "path": "./clonamic-git"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Git"
+    },
+    {
       "name": "clonamic-harness",
       "source": {
         "source": "local",

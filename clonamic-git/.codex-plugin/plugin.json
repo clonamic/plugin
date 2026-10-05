@@ -1,0 +1,33 @@
+{
+  "name": "clonamic-git",
+  "version": "1.0.0",
+  "description": "Git commits, PRs, tags, and release notes under the user's own identity with no AI attribution trailers, footers, or bot authors.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "repository": "https://github.com/clonamic/plugin",
+  "license": "MIT",
+  "keywords": [
+    "git",
+    "commit",
+    "attribution",
+    "co-authored-by",
+    "commit-msg-hook",
+    "history"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Clonamic Git",
+    "shortDescription": "Commits, PRs, tags, and releases under your identity with no AI trace.",
+    "longDescription": "Write git commits, pull requests, tags, and release notes under the user's own identity with no AI co-author trailers, generated-with footers, or bot authors; scan and clean unpushed history with a backup branch; install a project-local commit-msg hook that strips AI trailers on every host.",
+    "developerName": "Clonamic",
+    "category": "Git",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use Clonamic Git to commit these changes without any AI attribution."
+    ]
+  }
+}

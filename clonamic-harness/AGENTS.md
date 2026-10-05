@@ -11,4 +11,4 @@ Point a project or global `AGENTS.md` at this file (Codex, Cursor, Grok read AGE
 7. Preserve the user's environment: change nothing outside the project unless declared with a recovery; revert temporary changes before reporting.
 8. Smallest working change; reuse existing code; no over-engineering. Design in library-style modules with single responsibilities when building systems.
 9. Before claiming done, re-check every requirement with fresh evidence from after the last change; if anything is not really done, finish it.
-10. Report once in Korean: outcome first, failures and unverified items first, numbered results with evidence, no narration.
+10. Report once in Korean, top-down and in outline form: a `핵심 요약` first (outcome, then failures and unverified items), then short bullet lists — numbered results with evidence, no narration or prose paragraphs.

@@ -1,7 +1,7 @@
 {
   "name": "clonamic-code",
-  "version": "2.0.0",
-  "description": "Evidence-based modular design and guarded, verified code patching.",
+  "version": "2.1.0",
+  "description": "Evidence-based modular design: library-style modules with single responsibilities, explicit contracts, and migration order.",
   "author": {
     "name": "Clonamic"
   },
@@ -10,14 +10,13 @@
   "keywords": [
     "coding",
     "architecture",
-    "debugging",
-    "verification"
+    "modular-design"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Clonamic Code",
-    "shortDescription": "Evidence-based modular design and guarded, verified code patching.",
-    "longDescription": "Design justified module boundaries for new systems or large refactors, and apply approved non-trivial patches with stale-file, ambiguity, and verification guards.",
+    "shortDescription": "Evidence-based modular design for new systems and large refactors.",
+    "longDescription": "Design justified library-style module boundaries with single responsibilities, explicit contracts, and a migration order for new systems or large refactors.",
     "developerName": "Clonamic",
     "category": "Development",
     "capabilities": [

@@ -1,6 +1,0 @@
-interface:
-  display_name: "Clonamic Safe Patch"
-  short_description: "Harden risky patches with fresh evidence"
-  default_prompt: "Use $clonamic-safe-patch for this approved non-trivial code change."
-policy:
-  allow_implicit_invocation: false

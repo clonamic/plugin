@@ -1,4 +1,4 @@
-# Lean discipline
+# Lean change
 
 Read the task and every file the change touches, and trace the real flow end to end, before simplifying anything. Then stop at the first rung that holds:
 
