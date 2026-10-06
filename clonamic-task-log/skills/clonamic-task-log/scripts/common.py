@@ -70,6 +70,67 @@ def repo_name(repo: Path) -> str:
     return repo.name
 
 
+# ---------------------------------------------------------------- workspace
+
+MAX_MEMBERS = 20
+NOT_MEMBERS = {".git", ".claude", ".codex", ".cursor", ".grok"}
+
+
+def workspace_members(folder: Path) -> list[Path]:
+    """Git repositories directly under `folder` (one level, sorted by name)."""
+    if not folder.is_dir():
+        return []
+    return sorted(p for p in folder.iterdir() if p.is_dir() and p.name not in NOT_MEMBERS and (p / ".git").exists())
+
+
+def project_root(start: Path) -> tuple[Path, list[tuple[str, Path]]]:
+    """(root, members). Inside a repository: that repository, one member with no prefix.
+    A folder that is not a repository but holds repositories directly below it is a workspace:
+    one project whose members' paths carry the prefix '<folder name>/'. At most MAX_MEMBERS members."""
+    if git_ok(start, "rev-parse", "--show-toplevel"):
+        root = repo_root(start)
+        return root, [("", root)]
+    found = workspace_members(start)
+    if not found:
+        raise TaskLogError("not inside a git repository",
+                           "기록할 프로젝트 폴더(git 저장소)나, git 저장소를 바로 아래에 둔 폴더에서 실행하세요.")
+    if len(found) > MAX_MEMBERS:
+        raise TaskLogError(f"{len(found)} repositories in this folder; the limit is {MAX_MEMBERS}",
+                           f"저장소를 {MAX_MEMBERS}개 이하로 둔 폴더에서 실행하거나, 저장소 하나 안에서 실행하세요.")
+    return start.resolve(), [(p.name + "/", p) for p in found]
+
+
+def members(root: Path) -> list[tuple[str, Path]]:
+    return project_root(root)[1]
+
+
+def is_workspace(root: Path) -> bool:
+    return members(root)[0][0] != ""
+
+
+def commit_repo(repo: Path, commit: dict) -> Path:
+    """The repository a collected commit lives in (workspace members differ from the project root)."""
+    return Path(commit["repo"]) if commit.get("repo") else repo
+
+
+def local_path(commit: dict, path: str) -> str:
+    """Project path -> path inside the commit's own repository."""
+    return path.removeprefix(commit.get("prefix", ""))
+
+
+def split_paths(root: Path, paths: list[str]) -> list[tuple[Path, list[str]]]:
+    """Route project paths to (repository, repository-relative paths). A bare member name means that whole member."""
+    out = []
+    for prefix, repo in members(root):
+        if not prefix:
+            return [(repo, list(paths))]
+        inner = ["." if p.rstrip("/") + "/" == prefix else p[len(prefix):]
+                 for p in paths if p.rstrip("/") + "/" == prefix or p.startswith(prefix)]
+        if inner:
+            out.append((repo, inner))
+    return out
+
+
 # ---------------------------------------------------------------- storage
 
 def log_dir(repo: Path, agent_dir: str) -> Path:
@@ -107,29 +168,45 @@ def remote_url(repo: Path) -> str:
     return ""
 
 
-def project_identity(repo: Path) -> dict:
+def remote_hash(repo: Path) -> str:
     url = re.sub(r"\.git/?$", "", remote_url(repo).strip().rstrip("/")).lower()
-    return {
-        "remote_hash": hashlib.sha256(url.encode()).hexdigest()[:16] if url else "",
-        "root": str(repo.resolve()),
-    }
+    return hashlib.sha256(url.encode()).hexdigest()[:16] if url else ""
+
+
+def project_identity(repo: Path) -> dict:
+    """One repository: its remote. A workspace: every member's remote, so a copied log-part is still refused."""
+    parts = members(repo)
+    if parts[0][0] == "":
+        return {"remote_hash": remote_hash(repo), "root": str(repo.resolve())}
+    listed = [{"name": prefix.rstrip("/"), "remote_hash": remote_hash(path)} for prefix, path in parts]
+    joined = "\n".join(sorted(m["remote_hash"] for m in listed))
+    return {"kind": "workspace", "remote_hash": hashlib.sha256(joined.encode()).hexdigest()[:16],
+            "root": str(repo.resolve()), "members": listed}
+
+
+def same_project(recorded: dict, current: dict) -> bool:
+    """Same remote, or a workspace that still shares at least one member remote (a repository was added or removed)."""
+    if recorded.get("remote_hash") == current.get("remote_hash"):
+        return True
+    if recorded.get("kind") == current.get("kind") == "workspace":
+        old = {m.get("remote_hash") for m in recorded.get("members", [])} - {""}
+        return bool(old & {m["remote_hash"] for m in current["members"]})
+    return False
 
 
 def open_project(start: Path, agent_dir: str) -> tuple[Path, Path, dict]:
     """Resolve the project from the working directory and load ONLY its own log-part.
 
-    Refuses outside a git repository and refuses a log-part whose recorded identity
-    belongs to another project (copied or moved folder).
+    Refuses outside a git repository (or a workspace folder of repositories) and refuses a log-part
+    whose recorded identity belongs to another project (copied or moved folder).
     """
-    if not git_ok(start, "rev-parse", "--show-toplevel"):
-        raise TaskLogError("not inside a git repository", "기록할 프로젝트 폴더(git 저장소) 안에서 실행하세요.")
-    repo = repo_root(start)
+    repo, _ = project_root(start)
     logs = log_dir(repo, agent_dir)
     state = load_state(logs)
     recorded = state.get("project")
     if recorded:
         current = project_identity(repo)
-        if recorded.get("remote_hash") != current["remote_hash"]:
+        if not same_project(recorded, current):
             raise TaskLogError(
                 "log-part belongs to another project (remote differs)",
                 f"{logs} 는 다른 프로젝트의 기록입니다. 이 프로젝트용으로 쓰려면 폴더를 옮기거나 지우고 첫 실행 설정을 다시 하세요.",
@@ -173,6 +250,7 @@ class WorkUnit:
 @dataclass
 class Profile:
     part: str = ""
+    intro: str = ""  # one-line project introduction for outsiders
     identities: list[str] = field(default_factory=list)
     scopes: list[str] = field(default_factory=list)
     work_unit: WorkUnit | None = None
@@ -249,6 +327,7 @@ def parse_profile(text: str) -> Profile:
         if not in_features and (m := KEY_LINE.match(line)):
             fields[m.group(1).strip()] = m.group(2).strip()
     profile.part = fields.get("파트", "")
+    profile.intro = "" if fields.get("소개", "").strip() in NONE_WORDS else fields.get("소개", "").strip()
     profile.identities = [e.lower() for e in split_terms(fields.get("신원", ""))]
     profile.scopes = [p.strip("/") for p in split_list(fields.get("범위", ""))]
     if fields.get("작업 단위"):

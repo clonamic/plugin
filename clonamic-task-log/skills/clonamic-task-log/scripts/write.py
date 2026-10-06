@@ -8,7 +8,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from common import TaskLogError, project_identity, write_json, write_text_atomic
+from common import TaskLogError, members, project_identity, remote_url, write_json, write_text_atomic
 
 TITLE = re.compile(r"^# (\d{4}-\d{2}-\d{2}(?:~\d{4}-\d{2}-\d{2})?) · (.+)$")
 NOTION_KINDS = {"root", "container", "project", "log", "progress", "portfolio", "day"}
@@ -35,6 +35,33 @@ def headline(entry: str) -> str:
     return m.group(2).strip() if m else ""
 
 
+WORKSPACE_FILE = "workspace.md"
+
+
+def bind_project(repo: Path, logs: Path, state: dict) -> dict:
+    """Record, on every save, which repositories this log-part belongs to: the identity in state.json and,
+    for a workspace, workspace.md listing every bound repository. The caller writes state.json."""
+    state["project"] = project_identity(repo)
+    parts = [(prefix.rstrip("/"), path) for prefix, path in members(repo) if prefix]
+    if not parts:
+        return {}
+    rows = [f"| {name} | {remote_url(path) or '(원격 없음)'} |" for name, path in parts]
+    write_text_atomic(logs / WORKSPACE_FILE, "\n".join([
+        "# 묶인 저장소",
+        "",
+        "이 기록 폴더는 아래 저장소들을 하나의 프로젝트로 묶어 씁니다. /clonamic-task-log 가 저장할 때마다 다시 씁니다.",
+        "기능 경로와 범위·제외 경로는 `저장소 폴더/경로` 형태로 적습니다(예: `plugin/scripts`). 저장소 폴더 이름만 쓰면 그 저장소 전체입니다.",
+        "",
+        f"- 루트: {repo}",
+        f"- 저장소: {len(parts)}개 (상한 20개)",
+        "",
+        "| 저장소 폴더 | 원격 |",
+        "|---|---|",
+        *rows,
+    ]) + "\n")
+    return {"workspace": [name for name, _ in parts], "workspace_file": str(logs / WORKSPACE_FILE)}
+
+
 def write_entry(repo: Path, logs: Path, state: dict, run: dict, entry: str) -> dict:
     """Write <date>.md whole (an entry carries no metadata). The entry date must be the prepared run's date."""
     run_date, key, fingerprint = run["date"], run["key"], run["fingerprint"]
@@ -53,7 +80,7 @@ def write_entry(repo: Path, logs: Path, state: dict, run: dict, entry: str) -> d
         return {"status": "unchanged", "file": str(path)}
     write_text_atomic(path, body)
 
-    state.setdefault("project", project_identity(repo))
+    bind_project(repo, logs, state)
     day["blocks"][key] = {
         "fingerprint": fingerprint,
         "body_sha": digest,
@@ -64,6 +91,7 @@ def write_entry(repo: Path, logs: Path, state: dict, run: dict, entry: str) -> d
         "types": run["types"],
         "notion_title": run["notion_title"],
         "collected_at": run["generated_at"],
+        "features": run.get("touched_features", []),
     }
     state["processed"] = sorted(set(state["processed"]) | set(run["considered"]))
     state["processed_patches"] = sorted(set(state.get("processed_patches", [])) | set(run.get("patches", [])))
@@ -73,10 +101,16 @@ def write_entry(repo: Path, logs: Path, state: dict, run: dict, entry: str) -> d
         del state["features"][gone]  # features whose paths no longer exist are dropped
     for item in run["progress"]:
         old_feature = state["features"].get(item["feature"], {})
-        prev = old_feature.get("prev") if old_feature.get("updated") == updated else old_feature.get("pct")
+        same_day = old_feature.get("updated") == updated
+        prev = old_feature.get("prev") if same_day else old_feature.get("pct")
+        done_prev = old_feature.get("done_prev", old_feature.get("done")) if same_day else old_feature.get("done")
         state["features"][item["feature"]] = {"pct": item["pct"], "basis": item["basis"], "updated": updated,
                                               "prev": prev, "milestones": item.get("milestones"),
-                                              "shown": item.get("shown")}
+                                              "shown": item.get("shown"), "done": item.get("done", []),
+                                              **({"done_prev": done_prev} if done_prev is not None else {})}
+    completed = [c for c in state.get("completed", []) if c.get("date") != run_date]
+    state["completed"] = completed + [{"date": run_date, "target": c["target"], "kind": c["kind"]}
+                                      for c in run.get("completions", [])]
     if run.get("work_unit"):
         state["work_unit"] = {k: run["work_unit"].get(k) for k in ("label", "start", "end", "pct", "commits")}
     kept = [m for m in state["metrics"] if not (m["date"] == run_date and m.get("key") == key)]
@@ -100,6 +134,8 @@ def render_index(state: dict, project: str) -> str:
         for label, item in sorted(state["features"].items()):
             shown = item.get("shown") or ("마일스톤 미설정" if "마일스톤 없음" in item["basis"] else f"약 {item['pct']}%")
             lines.append(f"| {label} | {shown} | {item['basis']} | {item['updated']} |")
+    if state.get("completed"):
+        lines += ["", "## 완료 기록"] + [f"- {c['date']} — {c['target']}" for c in state["completed"]]
     if unit := state.get("work_unit"):
         lines += ["", "## 작업 단위", f"- {unit['label']} — {unit.get('start', '')}~{unit.get('end') or ''}"
                   + (f", 진행 {unit['pct']}% (추정)" if unit.get("pct") is not None else "")]
@@ -182,7 +218,7 @@ def set_notion(repo: Path, logs: Path, state: dict, kind: str, page_id: str, url
     if kind not in NOTION_KINDS:
         raise TaskLogError(f"unknown notion kind {kind!r}", f"--kind 는 {sorted(NOTION_KINDS)} 중 하나입니다.")
     record = {"id": page_id, "url": url, "title": title}
-    state.setdefault("project", project_identity(repo))
+    bind_project(repo, logs, state)
     if kind == "day":
         if not day:
             raise TaskLogError("--date is required for kind=day")
@@ -240,6 +276,7 @@ def portfolio_rollup(state: dict, project: str, part: str) -> dict:
         "features": [{"feature": k} | v for k, v in sorted(state["features"].items())],
         "metrics": state["metrics"],
         "highlights": highlights,
+        "completed": state.get("completed", []),
         "work_unit": state.get("work_unit"),
         "notion": state["notion"].get("portfolio"),
     }
@@ -254,7 +291,7 @@ def notes_file(logs: Path, run_date: str) -> Path:
 def save_notes(repo: Path, logs: Path, state: dict, run: dict, text: str) -> dict:
     """Persist checked notes for the prepared date, tied to its evidence fingerprint (kept in state.json only)."""
     path = notes_file(logs, run["date"])
-    state.setdefault("project", project_identity(repo))
+    bind_project(repo, logs, state)
     write_text_atomic(path, text.strip() + "\n")
     state.setdefault("notes", {})[run["date"]] = {"fingerprint": run["fingerprint"], "saved_at": run["generated_at"]}
     write_json(logs / "state.json", state)

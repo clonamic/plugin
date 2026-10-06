@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path, PurePosixPath
 
-from common import CONFIG_EXT, SENSITIVE_PATHSPEC, Profile, ext_of, git, is_doc, is_noise
+from common import CONFIG_EXT, SENSITIVE_PATHSPEC, Profile, commit_repo, ext_of, git, is_doc, is_noise, local_path
 from redact import MASK, scrub
 
 ENDPOINT_DIRS = {"api", "apis", "routes", "router", "routers", "endpoints", "controllers", "handlers"}
@@ -45,9 +45,9 @@ def _clean(text: str, profile: Profile) -> str:
 def hints_of(repo: Path, commit: dict, profile: Profile) -> list[str]:
     """Body lines, added docstrings (first sentence) and added markdown headings, all scrubbed."""
     raw = list(commit["body"].splitlines())
-    paths = [f["path"] for f in commit["files"] if not f.get("group")]
+    paths = [local_path(commit, f["path"]) for f in commit["files"] if not f.get("group")]
     if paths:
-        patch = git(repo, "show", "--format=", "--unified=0", "--no-renames", "--no-ext-diff", "--no-textconv",
+        patch = git(commit_repo(repo, commit), "show", "--format=", "--unified=0", "--no-renames", "--no-ext-diff", "--no-textconv",
                     commit["sha"], "--", *paths, *SENSITIVE_PATHSPEC, check=False)
         added = "\n".join(ln[1:] for ln in patch.splitlines() if ln.startswith("+") and not ln.startswith("+++"))
         raw += [m.group(1).strip().split("\n")[0] for m in DOCSTRING.finditer(added)]

@@ -11,7 +11,7 @@ from collections import Counter
 from datetime import date
 from pathlib import Path, PurePosixPath
 
-from common import TaskLogError, git, git_ok, log_dir, repo_name
+from common import TaskLogError, git, git_ok, log_dir, members, project_root, repo_name
 
 CONTAINER_DIRS = {"src", "lib", "app", "apps", "packages", "pkg", "internal", "source", "services", "modules", "plugin", "plugins"}
 SPRINT_RE = re.compile(r"(?i)^(?:.*/)?((?:sprint|iteration|iter|milestone|week|wk)[-_]?)\d+$")
@@ -68,22 +68,30 @@ def run_checks(start: Path, agent_dir: str) -> tuple[list[dict], Path | None]:
         checks.append(check("git", False, "git not found", "git을 설치하세요(macOS: xcode-select --install, 그 밖: OS 패키지 관리자)."))
         return checks, None
     checks.append(check("git", True, "found"))
-    if not git_ok(start, "rev-parse", "--show-toplevel"):
-        checks.append(check("repository", False, "not inside a git repository", "기록할 프로젝트 폴더(git 저장소) 안에서 실행하세요."))
+    try:
+        repo, parts = project_root(start)
+    except TaskLogError as exc:
+        checks.append(check("repository", False, str(exc), exc.fix))
         return checks, None
-    repo = Path(git(start, "rev-parse", "--show-toplevel").strip())
-    checks.append(check("repository", True, repo.name))
-    remotes = git(repo, "remote", check=False).split()
-    checks.append(check("remote", bool(remotes), ", ".join(remotes) or "none",
-                        "원격 저장소를 연결하세요: git remote add origin <원격 주소>"))
-    name = git(repo, "config", "user.name", check=False).strip()
-    email = git(repo, "config", "user.email", check=False).strip()
-    checks.append(check("identity", bool(name and email), "set" if name and email else "missing",
-                        'git config user.name "이름" && git config user.email "메일" 로 커밋 신원을 설정하세요.'))
+    workspace = parts[0][0] != ""
+    checks.append(check("repository", True, f"workspace of {len(parts)} repositories" if workspace else repo.name))
+    for prefix, member in parts:  # every member of a workspace needs a remote and a commit identity
+        where = f" ({prefix.rstrip('/')})" if workspace else ""
+        remotes = git(member, "remote", check=False).split()
+        checks.append(check("remote" + where, bool(remotes), ", ".join(remotes) or "none",
+                            f"원격 저장소를 연결하세요{where}: git remote add origin <원격 주소>"))
+        name = git(member, "config", "user.name", check=False).strip()
+        email = git(member, "config", "user.email", check=False).strip()
+        checks.append(check("identity" + where, bool(name and email), "set" if name and email else "missing",
+                            f'커밋 신원을 설정하세요{where}: git config user.name "이름" && git config user.email "메일"'))
     logs = log_dir(repo, agent_dir)
     try:
         rel = logs.resolve().relative_to(repo.resolve())
     except ValueError:
+        rel = None
+    if workspace:  # the workspace root is no repository, so log-part sits outside every member
+        checks.append(check("agent-dir-ignored", True, "workspace root, outside every repository"))
+    elif rel is None:
         checks.append(check("agent-dir-ignored", True, "outside the repository (dry run only)"))
     else:
         probe = (PurePosixPath(rel.as_posix()) / "index.md").as_posix()
@@ -121,7 +129,7 @@ def detect_work_unit(repo: Path) -> list[dict]:
     return found
 
 
-def detect_features(repo: Path, emails: list[str], limit: int = 6) -> list[dict]:
+def detect_features(repo: Path, emails: list[str], limit: int = 6, prefix: str = "") -> list[dict]:
     args = ["log", "--branches", "--since=90.days", "--no-merges", "--fixed-strings", "--format=", "--name-only"]
     args += [f"--author={e}" for e in emails]
     counts: Counter[str] = Counter()
@@ -130,21 +138,27 @@ def detect_features(repo: Path, emails: list[str], limit: int = 6) -> list[dict]
         if len(parts) < 2:
             continue
         depth = 2 if parts[0].lower() in CONTAINER_DIRS and len(parts) > 2 else 1
-        counts["/".join(parts[:depth])] += 1
+        counts[prefix + "/".join(parts[:depth])] += 1
     return [{"path": p, "file_changes": n} for p, n in counts.most_common(limit)]
 
 
 def defaults(repo: Path) -> dict:
-    email = git(repo, "config", "user.email", check=False).strip().lower()
-    emails = [email] if email else []
-    return {
+    parts = members(repo)
+    emails = sorted({e for _, m in parts if (e := git(m, "config", "user.email", check=False).strip().lower())})
+    limit = max(6, len(parts))
+    features = [f for prefix, m in parts for f in (detect_features(m, emails, limit, prefix) if emails else [])]
+    workspace = parts[0][0] != ""
+    result = {
         "project": repo_name(repo),
         "identities": emails,
-        "work_unit_candidates": detect_work_unit(repo),
-        "feature_candidates": detect_features(repo, emails) if emails else [],
+        "work_unit_candidates": [] if workspace else detect_work_unit(repo),  # workspace: day-based units only
+        "feature_candidates": sorted(features, key=lambda f: -f["file_changes"])[:limit],
         "notion_path": f"개인페이지 / project / {repo_name(repo)} / 작업로그",
         "first_window_days": 7,
     }
+    if workspace:
+        result["members"] = [prefix.rstrip("/") for prefix, _ in parts]
+    return result
 
 
 def run(start: Path, agent_dir: str) -> dict:
@@ -154,6 +168,8 @@ def run(start: Path, agent_dir: str) -> dict:
     if repo is not None:
         logs = log_dir(repo, agent_dir)
         result["repo"] = str(repo)
+        if len(parts := members(repo)) > 1 or parts[0][0]:
+            result["members"] = [prefix.rstrip("/") for prefix, _ in parts]
         result["log_dir"] = str(logs)
         result["first_run"] = not (logs / "profile.md").is_file()
         if result["first_run"] and ok:

@@ -7,7 +7,8 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
-from common import SENSITIVE_PATHSPEC, day_start, Feature, Profile, WorkUnit, git, is_code, is_test
+from common import (SENSITIVE_PATHSPEC, day_start, Feature, Profile, WorkUnit, git, is_code, is_test, is_workspace, members,
+                    split_paths)
 
 TODO_ERE = r"(TODO|FIXME|XXX|HACK)([^A-Za-z]|$)|NotImplementedError|unimplemented!|todo!\("
 
@@ -21,15 +22,18 @@ def feature_signals(repo: Path, feature: Feature, profile: Profile) -> dict:
     signals: dict = {"milestones": [sum(done for _, done in feature.milestones), len(feature.milestones)]}
     if not feature.paths:
         return signals | {"paths": False}
-    files = git(repo, "ls-files", "--", *feature.paths, *SENSITIVE_PATHSPEC).splitlines()
-    commits = git(repo, "rev-list", "--count", "--branches", "--no-merges", *authors, "--", *feature.paths).strip()
-    todo = git(repo, "grep", "-I", "-n", "-E", TODO_ERE, "--", *feature.paths, *SENSITIVE_PATHSPEC, check=False)
+    files: list[str] = []
+    commits = todos = 0
+    for member, paths in split_paths(repo, feature.paths):  # a workspace feature may span several repositories
+        files += git(member, "ls-files", "--", *paths, *SENSITIVE_PATHSPEC).splitlines()
+        commits += int(git(member, "rev-list", "--count", "--branches", "--no-merges", *authors, "--", *paths).strip() or 0)
+        todos += len(git(member, "grep", "-I", "-n", "-E", TODO_ERE, "--", *paths, *SENSITIVE_PATHSPEC, check=False).splitlines())
     return signals | {
         "paths": True,
         "code_files": sum(1 for f in files if is_code(f) and not is_test(f)),
         "test_files": sum(1 for f in files if is_test(f)),
-        "commits": int(commits or 0),
-        "todos": len(todo.splitlines()),
+        "commits": commits,
+        "todos": todos,
     }
 
 
@@ -72,6 +76,8 @@ def unit_window(repo: Path, unit: WorkUnit, today: date) -> dict | None:
         end = begin + timedelta(days=unit.days - 1)
         return {"label": f"{unit.name} {index + 1}", "start": begin.isoformat(), "end": end.isoformat(),
                 "time_pct": round5(100 * ((today - begin).days + 1) / unit.days)}
+    if is_workspace(repo):  # tags and branches belong to one repository; a workspace counts by days only
+        return None
     if unit.mode == "tag":
         rows = git(repo, "for-each-ref", "refs/tags", "--sort=-creatordate",
                    "--format=%(refname:short) %(creatordate:short)", check=False).splitlines()
@@ -98,11 +104,43 @@ def unit_window(repo: Path, unit: WorkUnit, today: date) -> dict | None:
 NO_MILESTONES = "마일스톤 미설정"
 
 
+def feature_history(state: dict, label: str, before: str) -> list[dict]:
+    """Earlier dated entries that touched the feature: [{date, headline}] for a 완료 정리's '거쳐 온 길'."""
+    rows = []
+    for day, value in sorted(state.get("days", {}).items()):
+        if day[:10] >= before[:10]:
+            continue
+        rows += [{"date": day, "headline": block.get("headline", "")} for block in value.get("blocks", {}).values()
+                 if label in block.get("features", [])]
+    return rows
+
+
+def completions(profile: Profile, state: dict, live: list[str], updated: str) -> list[dict]:
+    """Milestones checked since the last recorded run, and features whose milestones are now all checked.
+
+    A feature with no recorded checklist yet is the baseline (its checked milestones are not new), and a rerun of
+    the same date compares against the checklist from before that date, so the answer stays the same."""
+    out: list[dict] = []
+    for feature in profile.features:
+        old = state.get("features", {}).get(feature.label)
+        if feature.label not in live or not old or "done" not in old:
+            continue
+        base = old.get("done_prev", old["done"]) if old.get("updated") == updated else old["done"]
+        done = [text for text, checked in feature.milestones if checked]
+        history = feature_history(state, feature.label, updated)
+        out += [{"kind": "milestone", "feature": feature.label, "target": f"{feature.label} — {text}", "history": history}
+                for text in done if text not in base]
+        if feature.milestones and len(done) == len(feature.milestones) and len(base) < len(feature.milestones):
+            out.append({"kind": "feature", "feature": feature.label, "target": feature.label, "history": history})
+    return out
+
+
 def paths_exist(repo: Path, paths: list[str]) -> bool:
     """A feature whose paths are all gone from the repo no longer exists (features without paths stay)."""
     if not paths:
         return True
-    return any((repo / p).exists() for p in paths) or bool(git(repo, "ls-files", "--", *paths, check=False).strip())
+    return any((repo / p).exists() for p in paths) or any(
+        git(member, "ls-files", "--", *inner, check=False).strip() for member, inner in split_paths(repo, paths))
 
 
 def run(repo: Path, profile: Profile, included: list[dict], state: dict, today: date) -> dict:
@@ -124,6 +162,7 @@ def run(repo: Path, profile: Profile, included: list[dict], state: dict, today: 
             "delta": pct - base if base is not None else None,
             "touched_now": any(feature.label in c.get("features", []) for c in included),
             "next_milestones": [text for text, done in feature.milestones if not done][:3],
+            "done": [text for text, done in feature.milestones if done],
             "label": "추정",
         })
     unit = None
@@ -133,10 +172,12 @@ def run(repo: Path, profile: Profile, included: list[dict], state: dict, today: 
         args = ["log", "--branches", "--no-merges", *authors, f"--since={since}", "--format=%H", "--name-only"]
         touched: set[str] = set()
         commits = 0
-        for line in git(repo, *args).splitlines():
+        lines = [(prefix, line) for prefix, member in members(repo) for line in git(member, *args).splitlines()]
+        for prefix, line in lines:
             if re.fullmatch(r"[0-9a-f]{40}", line):
                 commits += 1
             elif line.strip():
+                line = prefix + line
                 for feature in profile.features:
                     if any(line == p or line.startswith(p + "/") for p in feature.paths):
                         touched.add(feature.label)

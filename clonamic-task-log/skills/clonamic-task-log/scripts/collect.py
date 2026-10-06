@@ -7,8 +7,8 @@ import subprocess
 from datetime import date, datetime, timedelta
 from pathlib import Path, PurePosixPath
 
-from common import (GIT_ENV, SENSITIVE_PATHSPEC, Profile, day_start, git, git_ok, is_bench, is_code, is_doc, is_mine,
-                    is_noise, is_test, under, zone)
+from common import (GIT_ENV, SENSITIVE_PATHSPEC, Profile, commit_repo, day_start, git, is_bench, is_code, is_doc,
+                    is_mine, is_noise, is_test, local_path, under, zone)
 
 CONVENTIONAL = re.compile(r"^(?P<type>[a-zA-Z]+)(?:\((?P<scope>[^)]*)\))?(?P<bang>!)?:\s*(?P<rest>.*)$")
 TYPE_ALIASES = {
@@ -103,6 +103,14 @@ def revs_for_window(repo: Path, profile: Profile, start: date) -> list[str]:
     return git(repo, "rev-list", "--branches", *author_args(profile), f"--since={since}").split()
 
 
+def known(repo: Path, shas: list[str]) -> list[str]:
+    """The shas that are commits of this repository (a workspace rerun carries shas of every member)."""
+    if not shas:
+        return []
+    out = git(repo, "cat-file", "--batch-check=%(objecttype) %(objectname)", stdin="\n".join(shas) + "\n", check=False)
+    return [line.split()[1] for line in out.splitlines() if line.startswith("commit ")]
+
+
 def in_window(commit: dict, start: date, end: date) -> bool:
     """Author date, in the profile time zone (details() already converted it)."""
     return start <= date.fromisoformat(commit["date"][:10]) <= end
@@ -145,7 +153,8 @@ def collapse(files: list[dict]) -> list[dict]:
     return out
 
 
-def details(repo: Path, shas: list[str], profile: Profile) -> list[dict]:
+def details(repo: Path, shas: list[str], profile: Profile, prefix: str = "") -> list[dict]:
+    """Commit records. `prefix` ('<member>/') turns repository paths into project paths in a workspace."""
     if not shas:
         return []
     fmt = SEP_REC + SEP_FIELD.join(["%H", "%P", "%an", "%ae", "%aI", "%s", "%b"]) + SEP_FIELD
@@ -158,6 +167,8 @@ def details(repo: Path, shas: list[str], profile: Profile) -> list[dict]:
         if not is_mine(name, email, profile.identities):
             continue
         files = parse_stats(stats)
+        for f in files:
+            f["path"] = prefix + f["path"]
         kept = [f for f in files if not any(under(f["path"], x) for x in profile.exclude_paths)]
         in_scope = [f for f in kept if not profile.scopes or any(under(f["path"], s) for s in profile.scopes)]
         entries = collapse(in_scope)
@@ -167,6 +178,8 @@ def details(repo: Path, shas: list[str], profile: Profile) -> list[dict]:
         local = datetime.fromisoformat(when).astimezone(tz)
         commits.append({
             "sha": sha,
+            "repo": str(repo),
+            "prefix": prefix,
             "parents": len(parents.split()),
             "author": name,
             "email": email.lower(),
@@ -242,8 +255,8 @@ def trivial_diff(repo: Path, commit: dict) -> str:
     files = commit["files"]
     if not files or any(f["status"] != "M" or f["binary"] or f.get("group") for f in files):
         return ""
-    patch = git(repo, "show", "--format=", "-w", "--ignore-blank-lines", "--unified=0", "--no-renames",
-                "--no-ext-diff", "--no-textconv", commit["sha"], "--", *[f["path"] for f in files],
+    patch = git(commit_repo(repo, commit), "show", "--format=", "-w", "--ignore-blank-lines", "--unified=0", "--no-renames",
+                "--no-ext-diff", "--no-textconv", commit["sha"], "--", *[local_path(commit, f["path"]) for f in files],
                 *SENSITIVE_PATHSPEC, check=False)
     changed: list[tuple[str, str]] = []
     current_ext = ""

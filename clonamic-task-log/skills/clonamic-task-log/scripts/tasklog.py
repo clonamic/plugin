@@ -18,7 +18,9 @@
   save             write profile.md / notion.md / notion-template.md from stdin into log-part
 
 Every command resolves the project from --repo (default: the working directory) and touches
-only <project>/<agent-dir>/log-part. Exit 3 = usage or environment error.
+only <project>/<agent-dir>/log-part. A folder that is not a repository but holds up to 20 repositories
+directly below it is one project (a workspace); log-part/workspace.md lists the bound repositories.
+Exit 3 = usage or environment error.
 """
 
 import sys
@@ -43,8 +45,9 @@ import progress  # noqa: E402
 import redact  # noqa: E402
 import score  # noqa: E402
 import write  # noqa: E402
-from common import (RUN_FILE, SENSITIVE_PATHSPEC, TaskLogError, git, git_ok, load_profile, open_project,  # noqa: E402
-                    parse_when, project_identity, read_json, repo_name, today_in, write_json, write_text_atomic, zone)
+from common import (RUN_FILE, SENSITIVE_PATHSPEC, TaskLogError, git, git_ok, load_profile, members,  # noqa: E402
+                    open_project, parse_when, project_identity, project_root, read_json, repo_name, same_project,
+                    today_in, write_json, write_text_atomic, zone)
 
 
 def emit(obj: dict, code: int = 0) -> int:
@@ -63,7 +66,8 @@ def read_entry(arg: str) -> str:
 
 
 def with_repo_terms(repo: Path, profile, extra_paths: list[str]):
-    listed = git(repo, "ls-files", "--", ".", *SENSITIVE_PATHSPEC).splitlines()
+    listed = [prefix + p for prefix, member in members(repo)
+              for p in git(member, "ls-files", "--", ".", *SENSITIVE_PATHSPEC).splitlines()]
     profile.repo_terms = redact.repo_terms(listed + extra_paths, repo_name(repo))
     return profile
 
@@ -82,7 +86,7 @@ def cmd_profile(args) -> int:
         for hit in redact.findings(text, None):
             problems.append({"text": text, "kind": hit["kind"]})
     return emit({"ok": True, "profile": {
-        "part": profile.part, "identities": len(profile.identities), "timezone": profile.timezone,
+        "part": profile.part, "intro": profile.intro, "identities": len(profile.identities), "timezone": profile.timezone,
         "scopes": profile.scopes, "exclude_paths": profile.exclude_paths,
         "work_unit": profile.work_unit.__dict__ if profile.work_unit else None,
         "features": [{"label": f.label, "paths": len(f.paths), "milestones": len(f.milestones)} for f in profile.features],
@@ -104,14 +108,17 @@ def cmd_prepare(args) -> int:
     run_date = start.isoformat() if start == end else f"{start}~{end}"
     key = "daily" if start == end else "range"
     previous = state["days"].get(run_date, {}).get("blocks", {}).get(key, {})
-    shas = collect.revs_for_window(repo, profile, start)
-    shas += [s for s in previous.get("considered", []) if s not in shas]  # rerun of the same date merges
-    found = [c for c in collect.details(repo, shas, profile)
-             if c["sha"] in previous.get("considered", []) or collect.in_window(c, start, end)]
-    collect.attach_patch_ids(repo, found)
+    found = []
+    for prefix, member in members(repo):  # one repository, or every member of a workspace
+        shas = collect.revs_for_window(member, profile, start)
+        shas += [s for s in collect.known(member, previous.get("considered", [])) if s not in shas]  # rerun merges
+        batch = [c for c in collect.details(member, shas, profile, prefix)
+                 if c["sha"] in previous.get("considered", []) or collect.in_window(c, start, end)]
+        collect.attach_patch_ids(member, batch)
+        found += batch
     pids = [c.get("patch_id") for c in found]
     on_head = {c["sha"] for c in found if c.get("patch_id") and pids.count(c["patch_id"]) > 1
-               and git_ok(repo, "merge-base", "--is-ancestor", c["sha"], "HEAD")}
+               and git_ok(Path(c["repo"]), "merge-base", "--is-ancestor", c["sha"], "HEAD")}
     duplicates = score.duplicate_shas(found, set(), on_head)
     primary, status = collect.limit([c for c in found if c["sha"] not in duplicates], profile)
     commits = sorted(primary + [c for c in found if c["sha"] in duplicates], key=lambda c: c["date"])
@@ -138,6 +145,10 @@ def cmd_prepare(args) -> int:
     }
     touched = [p["feature"] for p in prog["features"] if p["touched_now"]]
     abstract["touched_features"] = touched
+    done = progress.completions(profile, state, [p["feature"] for p in prog["features"]], end.isoformat())
+    abstract["intro"] = profile.intro
+    abstract["completions"] = done  # each needs a '### <target> — 완료' block in '## 완료 정리'
+    labels = [w["title"] for w in abstract["work_items"]]
     abstract["entry_file"] = f"{run_date}.md"
     abstract["notion_title"] = run_date if start == end else f"{start:%m%d}~{end:%m%d}"
     abstract["empty"] = not scored["included"]
@@ -146,10 +157,13 @@ def cmd_prepare(args) -> int:
     run = {
         "date": run_date, "key": key, "period": period, "project": project, "fingerprint": fingerprint,
         "generated_at": collected_at, "considered": [c["sha"] for c in commits],
+        "sources": {c["sha"]: c["prefix"].rstrip("/") for c in commits if c["prefix"]},  # workspace: sha -> member
         "patches": sorted({c["patch_id"] for c in commits if c.get("patch_id")}),
         "types": abstract["counts"]["by_type"],
         "progress": [{"feature": p["feature"], "pct": p["pct"], "basis": p["basis"], "milestones": p["milestones"],
-                      "prev": p["pct"] - p["delta"] if p["delta"] is not None else None} for p in prog["features"]],
+                      "done": p["done"], "prev": p["pct"] - p["delta"] if p["delta"] is not None else None}
+                     for p in prog["features"]],
+        "completions": done, "labels": labels,
         "touched_features": touched, "work_unit": prog["work_unit"], "metrics": abstract["metrics"], "repo_terms": profile.repo_terms,
         "notion_title": abstract["notion_title"], "identity": project_identity(repo),
     }
@@ -161,7 +175,7 @@ def load_run(repo: Path, logs: Path) -> dict:
     run = read_json(logs / RUN_FILE, None)
     if run is None:
         raise TaskLogError("no prepared run", "먼저 prepare 를 실행하세요.")
-    if run.get("identity", {}).get("remote_hash") != project_identity(repo)["remote_hash"]:
+    if not same_project(run.get("identity", {}), project_identity(repo)):
         raise TaskLogError("prepared run belongs to another project", "이 프로젝트에서 prepare 를 다시 실행하세요.")
     return run
 
@@ -193,7 +207,7 @@ def cmd_notes(args) -> int:
     profile = load_profile(logs)
     text = read_entry(args.entry)
     run = read_json(logs / RUN_FILE, None)
-    if run is not None and run.get("identity", {}).get("remote_hash") == project_identity(repo)["remote_hash"]:
+    if run is not None and same_project(run.get("identity", {}), project_identity(repo)):
         profile.repo_terms = run["repo_terms"]
     else:
         with_repo_terms(repo, profile, [])
@@ -241,19 +255,21 @@ def cmd_status(args) -> int:
     return emit({
         "ok": True,
         "project": repo_name(repo),
+        "members": [prefix.rstrip("/") for prefix, _ in members(repo) if prefix],
         "log_dir": str(logs),
         "first_run": not (logs / "profile.md").is_file(),
         "last_run": state.get("last_run"),
         "days": {d: sorted(v["blocks"]) for d, v in sorted(state["days"].items())},
         "notion": state["notion"],
         "features": state["features"],
+        "completed": state.get("completed", []),
     })
 
 
 def cmd_portfolio(args) -> int:
     repo, logs, state = open_project(Path(args.repo), args.agent_dir)
     profile = load_profile(logs)
-    return emit({"ok": True} | write.portfolio_rollup(state, repo_name(repo), profile.part))
+    return emit({"ok": True, "intro": profile.intro} | write.portfolio_rollup(state, repo_name(repo), profile.part))
 
 
 def cmd_write_portfolio(args) -> int:
@@ -268,19 +284,16 @@ def cmd_write_portfolio(args) -> int:
 
 
 def cmd_rebind(args) -> int:
-    from common import git_ok, load_state, log_dir, repo_root
+    from common import load_state, log_dir
 
-    start = Path(args.repo)
-    if not git_ok(start, "rev-parse", "--show-toplevel"):
-        raise TaskLogError("not inside a git repository", "기록할 프로젝트 폴더 안에서 실행하세요.")
-    repo = repo_root(start)
+    repo, _ = project_root(Path(args.repo))
     logs = log_dir(repo, args.agent_dir)
     state = load_state(logs)
     current = project_identity(repo)
     recorded = state.get("project")
-    if recorded and recorded.get("remote_hash") != current["remote_hash"]:
+    if recorded and not same_project(recorded, current):
         raise TaskLogError("remote differs; this log-part belongs to another project", "다른 프로젝트의 기록은 다시 묶을 수 없습니다.")
-    state["project"] = current
+    write.bind_project(repo, logs, state)
     write_json(logs / "state.json", state)
     return emit({"ok": True, "status": "rebound", "root": current["root"]})
 
@@ -290,20 +303,16 @@ SAVE_NAMES = ("profile.md", "notion.md", "notion-template.md")
 
 def cmd_save(args) -> int:
     """Write a setup file from stdin into log-part, so hosts that guard their agent folder need only this command."""
-    from common import log_dir, repo_root
-
-    start = Path(args.repo)
-    if not git_ok(start, "rev-parse", "--show-toplevel"):
-        raise TaskLogError("not inside a git repository", "기록할 프로젝트 폴더 안에서 실행하세요.")
     if args.name not in SAVE_NAMES:
         raise TaskLogError(f"save accepts only {', '.join(SAVE_NAMES)}", "기록 본문은 write로 저장하세요.")
+    repo, logs, state = open_project(Path(args.repo), args.agent_dir)  # refuses another project's log-part
     text = sys.stdin.read()
     if not text.strip():
         raise TaskLogError("empty input", "저장할 내용을 표준 입력으로 넘기세요.")
-    logs = log_dir(repo_root(start), args.agent_dir)
-    logs.mkdir(parents=True, exist_ok=True)
     write_text_atomic(logs / args.name, text.rstrip() + "\n")
-    return emit({"ok": True, "status": "saved", "file": str(logs / args.name)})
+    bound = write.bind_project(repo, logs, state)  # first run: record which repositories this log-part belongs to
+    write_json(logs / "state.json", state)
+    return emit({"ok": True, "status": "saved", "file": str(logs / args.name)} | bound)
 
 
 def main(argv: list[str] | None = None) -> int:
