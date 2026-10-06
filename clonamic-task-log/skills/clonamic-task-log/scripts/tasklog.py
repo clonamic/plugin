@@ -6,6 +6,7 @@
   prepare --on D   collect the commits AUTHORED on date/range D (default today) -> score -> progress -> redact;
                    D = YYYY-MM-DD | MM-DD | 오늘 | 어제 | 그제 | A~B. Prints the abstracted run, saves .run.json
   gate             check an entry file (--entry FILE or - for stdin) (leaks, entry contract, banned wording, numbers)   exit 2 blocked
+  notes --check    validate the leader's WORK NOTES (--entry FILE or -)                           exit 2 blocked
   write            gate, then write <date>.md (replaces the same date), update state.json and index.md
   korean           run clonamic-korean's check_revision.py (draft mode) on an entry   exit 0/1/2, 4 not installed
   forget --date D  delete one day's entry, state and index line; prints the Notion page to trash by hand
@@ -176,6 +177,22 @@ def cmd_gate(args) -> int:
     return emit(result, 0 if result["ok"] else 2)
 
 
+def cmd_notes(args) -> int:
+    """Check the leader's WORK NOTES (structured format) before the writer is spawned."""
+    if not args.check:
+        raise TaskLogError("notes needs --check", "tasklog.py notes --check --entry - < 작업 메모")
+    repo, logs, _ = open_project(Path(args.repo), args.agent_dir)
+    profile = load_profile(logs)
+    text = read_entry(args.entry)
+    run = read_json(logs / RUN_FILE, None)
+    if run is not None and run.get("identity", {}).get("remote_hash") == project_identity(repo)["remote_hash"]:
+        profile.repo_terms = run["repo_terms"]
+    else:
+        with_repo_terms(repo, profile, [])
+    result = gate.notes_problems(text, profile)
+    return emit(result, 0 if result["ok"] else 2)
+
+
 def cmd_write(args) -> int:
     repo, logs, state = open_project(Path(args.repo), args.agent_dir)
     profile = load_profile(logs)
@@ -295,6 +312,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--entry", required=True, help="draft file, or - to read it from stdin")
     p.add_argument("--kind", choices=["entry", "portfolio"], default="entry")
     p.set_defaults(func=cmd_gate)
+    p = sub.add_parser("notes")
+    p.add_argument("--check", action="store_true", help="validate WORK NOTES (exit 2 lists what is missing per item)")
+    p.add_argument("--entry", required=True, help="notes file, or - to read them from stdin")
+    p.set_defaults(func=cmd_notes)
     p = sub.add_parser("write")
     p.add_argument("--entry", required=True, help="draft file, or - to read it from stdin")
     p.add_argument("--replace-past", action="store_true", help="ignored; kept so older commands still run")

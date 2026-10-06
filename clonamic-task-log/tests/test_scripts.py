@@ -173,6 +173,54 @@ def entry_for(result: dict, day: str | None = None) -> str:
 """
 
 
+GOOD_NOTES = """### 영수증 인식
+- 이전 상태: 영수증 인식 API는 비어 있었고 택시 미터 인식은 사진을 통째로 외부 API에 보냈습니다.
+- 사실: 한국어 글자 인식 뒤 정규식으로 금액과 날짜 후보를 뽑았습니다.
+- 사실: 후보마다 가설 문장을 만들어 문장 판정 모델로 점수를 매겼습니다.
+- 판단: 통과 기준을 높게 둠 — 확신 없는 값을 돌려주지 않기 위해서입니다.
+- 확인: 샌드박스에서 사진 한 장으로 확인했습니다.
+"""
+
+
+class NotesCheckTests(unittest.TestCase):
+    def tokens(self, text: str) -> list[str]:
+        return [b["token"] for b in gate.notes_problems(text, parse_profile(PROFILE))["blocked"]]
+
+    def test_good_notes_pass(self) -> None:
+        self.assertEqual(self.tokens(GOOD_NOTES), [])
+
+    def test_missing_facts_and_prior_state(self) -> None:
+        one_fact = GOOD_NOTES.replace("- 사실: 후보마다 가설 문장을 만들어 문장 판정 모델로 점수를 매겼습니다.\n", "")
+        self.assertIn("facts-missing", self.tokens(one_fact))
+        no_prior = "\n".join(ln for ln in GOOD_NOTES.splitlines() if "이전 상태" not in ln)
+        self.assertIn("prior-state", self.tokens(no_prior))
+
+    def test_short_and_duplicate_facts(self) -> None:
+        self.assertIn("fact-short", self.tokens(GOOD_NOTES.replace("한국어 글자 인식 뒤 정규식으로 금액과 날짜 후보를 뽑았습니다.", "정규식 사용")))
+        dup = GOOD_NOTES.replace("후보마다 가설 문장을 만들어 문장 판정 모델로 점수를 매겼습니다.",
+                                 "한국어 글자 인식 뒤 정규식으로 금액과 날짜 후보를 뽑아냈습니다.")
+        self.assertIn("fact-duplicate", self.tokens(dup))
+
+    def test_goal_only_prior_state_blocks(self) -> None:
+        bad = GOOD_NOTES.replace("영수증 인식 API는 비어 있었고 택시 미터 인식은 사진을 통째로 외부 API에 보냈습니다.",
+                                 "사진에서 금액과 이체 정보를 구분해 골라야 했습니다.")
+        self.assertIn("prior-state-goal", self.tokens(bad))
+
+    def test_leak_blocks(self) -> None:
+        leaky = GOOD_NOTES + "- 사실: src/payments/api.py 안의 요청 처리 함수를 바꿨습니다.\n"
+        self.assertIn("src/payments/api.py", self.tokens(leaky))
+
+    def test_cli_exit_codes(self) -> None:
+        base = Path(tempfile.mkdtemp(dir=_TMP.name))
+        repo = Repo(base, "notes")
+        repo.profile()
+        for text, want in ((GOOD_NOTES, 0), ("### 기능\n- 사실: 너무 짧음\n", 2)):
+            proc = subprocess.run([sys.executable, str(TASKLOG), "--repo", str(repo.path), "--agent-dir", ".claude",
+                                   "notes", "--check", "--entry", "-"], input=text, capture_output=True, text=True, env=GIT_ENV)
+            self.assertEqual(proc.returncode, want, proc.stdout)
+            self.assertEqual(json.loads(proc.stdout)["ok"], want == 0)
+
+
 class WhenTests(unittest.TestCase):
     TODAY = date(2026, 10, 6)
 
@@ -422,6 +470,12 @@ class GateTests(unittest.TestCase):
         self.assertIn("section", self.tokens(no_progress))
         bare = parse_profile(PROFILE.split("## 기능")[0])
         self.assertEqual(self.tokens(no_progress, bare), [])
+
+    def test_problem_line_must_show_prior_state(self) -> None:
+        old = "- 문제 — 결제 요청을 처리하는 진입점이 없었습니다."
+        self.blocked("problem-goal-only", (old, "- 문제 — 금액과 이체 정보를 구분해 골라야 했습니다."))
+        self.blocked("problem-goal-only", (old, "- 문제 — 기존 흐름을 바꿔야 했습니다."))
+        self.assertNotIn("problem-goal-only", self.tokens(self.entry()))
 
     def test_each_hedging_phrase_blocks(self) -> None:
         for phrase in ("것으로 보입니다", "것 같습니다", "로 보입니다", "추정됩니다", "듯합니다", "것으로 판단됩니다"):

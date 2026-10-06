@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import re
 
+from difflib import SequenceMatcher
+
 from common import Profile
 from redact import findings
 
@@ -29,6 +31,13 @@ MAX_LINES = 40  # non-empty lines in an entry
 MAX_FIELD = 220  # characters in one 문제/한 일/결과 line
 MAX_OTHERS = 3  # items in '- 그 밖에 — …'
 JUDGMENT_RE = re.compile(r"^-\s+\*\*[^*\n]+\*\*\s+—\s+\S")
+PRIOR_CUES = ("기존|이전|없었|없는|없이|비어|하나로|통째로|수동|매번|모든|의존|섞여|달랐|않았|않고|지 않|못했|못하|막혀|따로|직접"
+              "|반복|부족|느렸|느려|실패했|일찍|했는데|였는데|던 |뒤에")
+PRIOR_RE = re.compile(PRIOR_CUES)
+GOAL_END_RE = re.compile(r"(?:야\s*(?:했|하였|합)(?:습니다|다)|필요(?:했|하였|합)(?:습니다|다)|하려면|했어야\s*합니다)[.\s]*$|(?:어려운|힘든)\s*경우를\s*\S+\s*(?:했습니다|해야 했습니다)[.\s]*$")
+NOTE_FACT_MIN = 15
+NOTE_LABELS = ("이전 상태", "사실", "판단", "확인")
+NOTE_LINE = re.compile(r"^-\s*(이전 상태|사실|판단|확인)\s*:\s*(.*)$")
 PERCENT_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*%(?!p)")
 
 
@@ -90,6 +99,78 @@ def wording_problems(text: str, run: dict | None) -> list[dict]:
             if _num(m.group(1)) not in percents:
                 add("percent", f"{m.group(1)}% is not in this run's progress or metrics", number)
     return problems
+
+
+def goal_only(text: str) -> bool:
+    """True when a 문제/이전 상태 line names no prior state or only states the goal."""
+    body = text.strip()
+    return not PRIOR_RE.search(body) or bool(GOAL_END_RE.search(body))
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[\s.,·]+", "", text)
+
+
+def _near_duplicate(a: str, b: str) -> bool:
+    x, y = _norm(a), _norm(b)
+    return x in y or y in x or SequenceMatcher(None, x, y).ratio() >= 0.8
+
+
+def notes_problems(text: str, profile: Profile | None = None) -> dict:
+    """Validate leader WORK NOTES: '### 기능' items with 이전 상태 x1, 사실 x2+, optional 판단/확인."""
+    problems: list[dict] = []
+
+    def add(rule: str, detail: str, line: int = 0, item: str = "") -> None:
+        problems.append({"kind": "notes", "token": rule, "item": item, "detail": detail, "line": line})
+
+    items: list[dict] = []
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("### "):
+            items.append({"name": line[4:].strip(), "line": number, "rows": []})
+        elif not items:
+            add("format", "text before the first '### <기능>' item", number)
+        elif m := NOTE_LINE.match(line):
+            items[-1]["rows"].append((m.group(1), m.group(2).strip(), number))
+        else:
+            add("format", "line must be '- 이전 상태:', '- 사실:', '- 판단:' or '- 확인:'", number, items[-1]["name"])
+    if not items:
+        add("format", "notes need at least one '### <기능>' work item")
+    for it in items:
+        name, rows = it["name"], it["rows"]
+        if not name:
+            add("format", "empty item heading", it["line"])
+        prior = [r for r in rows if r[0] == "이전 상태"]
+        facts = [r for r in rows if r[0] == "사실"]
+        if len(prior) != 1:
+            add("prior-state", f"needs exactly one '- 이전 상태:' (found {len(prior)})", it["line"], name)
+        for _, body, number in prior:
+            if goal_only(body):
+                add("prior-state-goal", "이전 상태 must describe what existed or was wrong before (기존/이전/없었/비어/하나로/통째로/"
+                    "수동/매번/모든/의존/섞여 …), not restate the goal", number, name)
+        if len(facts) < 2:
+            add("facts-missing", f"needs at least 2 '- 사실:' (found {len(facts)})", it["line"], name)
+        for i, (_, body, number) in enumerate(facts):
+            if len(body) < NOTE_FACT_MIN:
+                add("fact-short", f"사실 must be at least {NOTE_FACT_MIN} characters of concrete detail", number, name)
+            for _, other, _ in facts[:i]:
+                if _near_duplicate(body, other):
+                    add("fact-duplicate", "사실 repeats another 사실 of this item; give a different concrete fact", number, name)
+                    break
+        for label, body, number in rows:
+            if not body:
+                add("empty", f"'- {label}:' is empty", number, name)
+            elif label == "판단" and " — " not in body:
+                add("judgment-format", "판단 must be '<선택> — <이유>'", number, name)
+    for hit in findings(text, profile):
+        token = hit["token"][:4] + "…" if hit["kind"] == "secret" else hit["token"]
+        problems.append({"kind": hit["kind"], "token": token, "item": "", "detail": "leak: use feature words only",
+                         "line": hit["line"]})
+    summary = [{"feature": it["name"], "prior": sum(r[0] == "이전 상태" for r in it["rows"]),
+                "facts": sum(r[0] == "사실" for r in it["rows"])} for it in items]
+    return {"ok": not problems, "items": summary, "blocked": problems}
 
 
 def _bullets(lines: list[str]) -> list[tuple[int, str]]:
@@ -202,6 +283,11 @@ def contract_problems(text: str, profile: Profile | None, run: dict | None, kind
         for name, at, body in items:
             if " — " not in name:
                 add("field", f"한 일 / {name}: heading must be '### 기능 — 한 줄 성과'", at)
+            for line in body:
+                m = FIELD_LINE.match(line)
+                if m and m.group(1).strip() == "문제" and goal_only(line.split("—", 1)[-1]):
+                    add("problem-goal-only", f"한 일 / {name}: 문제 must state the prior state or constraint "
+                        "(기존/이전/없었/비어/하나로/통째로/수동/매번/모든/의존/섞여 …), not the goal", at)
             got = [f for f in _fields(body) if f in ITEM_FIELDS]
             if got != ITEM_FIELDS:
                 add("field", f"한 일 / {name}: needs '- 문제 —', '- 한 일 —', '- 결과 —' once each, in that order", at)
