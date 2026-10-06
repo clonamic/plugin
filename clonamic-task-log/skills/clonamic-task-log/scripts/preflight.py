@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import os
 import shutil
 import statistics
 import sys
@@ -19,6 +20,41 @@ RELEASE_RE = re.compile(r"^(v?)\d+\.\d+(?:\.\d+)?$")
 
 def check(name: str, ok: bool, detail: str, fix: str = "") -> dict:
     return {"name": name, "ok": ok, "detail": detail, "fix": "" if ok else fix}
+
+
+HOST_NAMES = {".claude": "Claude Code", ".codex": "Codex", ".cursor": "Cursor", ".grok": "Grok"}
+
+
+def write_fix(agent_dir: str, repo: Path, logs: Path) -> str:
+    """Host-specific, human-applied fix. Nothing here edits any host config."""
+    top = Path(agent_dir).name if Path(agent_dir).is_absolute() else Path(agent_dir).parts[0]
+    host = HOST_NAMES.get(top, "")
+    if host == "Claude Code":
+        return (f"Claude Code가 {top}/ 쓰기를 막고 있습니다. 설정에서 Edit({top}/log-part/**) 를 허용하거나, "
+                "쓰기 확인창이 뜨면 승인하세요. 설정은 자동으로 고치지 않습니다.")
+    if host == "Codex":
+        return (f"Codex 샌드박스가 {top}/ 쓰기를 막고 있습니다. 이 세션에만 적용되는 옵션으로 다시 실행하세요: "
+                f"codex -c 'sandbox_workspace_write.writable_roots=[\"{repo}/{top}\"]' "
+                "(대화형이면 CLI 쓰기 명령의 권한 상승 요청을 승인해도 됩니다). 설정 파일은 자동으로 고치지 않습니다.")
+    if host:
+        return f"{host}가 {logs} 쓰기를 막고 있습니다. 쓰기 확인창이 뜨면 승인하세요. 설정은 자동으로 고치지 않습니다."
+    return f"{logs} 에 쓸 수 없습니다. 폴더 권한을 확인하거나 호스트의 쓰기 확인창을 승인하세요."
+
+
+def probe_writable(logs: Path) -> str:
+    """Create and remove a probe file inside log-part (the only place the CLI writes). Returns '' or the error."""
+    probe = logs / f".write-probe-{os.getpid()}"
+    try:
+        logs.mkdir(parents=True, exist_ok=True)
+        probe.write_text("probe", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        try:
+            probe.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return f"{type(exc).__name__}: {exc.strerror or exc}"
+    return ""
 
 
 def run_checks(start: Path, agent_dir: str) -> tuple[list[dict], Path | None]:
@@ -50,6 +86,9 @@ def run_checks(start: Path, agent_dir: str) -> tuple[list[dict], Path | None]:
         top = PurePosixPath(rel.as_posix()).parts[0]
         checks.append(check("agent-dir-ignored", ignored, f"{top}/ ignored" if ignored else f"{top}/ not ignored",
                             f"프로젝트 .gitignore(공유) 또는 .git/info/exclude(나만)에 '{top}/' 한 줄을 직접 추가하세요. 자동으로 고치지 않습니다."))
+    problem = probe_writable(logs)
+    checks.append(check("log-part-writable", not problem, "writable" if not problem else problem,
+                        write_fix(agent_dir, repo, logs)))
     checks.append(check("notion-mcp", True, "agent must verify its own tool list"))
     return checks, repo
 

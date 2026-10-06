@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 SCRIPT = "skills/clonamic-korean/scripts/check_revision.py"
@@ -37,15 +38,22 @@ def locate() -> Path | None:
     return max(hits, key=lambda p: p.stat().st_mtime) if hits else None
 
 
-def check(entry: Path | None) -> tuple[dict, int]:
+def check(entry: Path | None, text: str | None = None) -> tuple[dict, int]:
     """With an entry: run draft mode. Without: only report where the checker is (or how to install it)."""
     script = locate()
     if script is None:
         return {"ok": False, "found": False, "repo": REPO, "install": INSTALL}, 4
-    if entry is None:
+    if entry is None and text is None:
         return {"ok": True, "found": True, "path": str(script), "skill_dir": str(script.parent.parent)}, 0
-    proc = subprocess.run([sys.executable, str(script), "--after", str(entry), "--json"],
-                          capture_output=True, text=True, encoding="utf-8")
+    if text is not None:  # stdin draft: a temp file that lives only inside this process and is always removed
+        with tempfile.TemporaryDirectory(prefix="tasklog-korean-") as tmp:
+            draft = Path(tmp) / "draft.md"
+            draft.write_text(text, encoding="utf-8")
+            proc = subprocess.run([sys.executable, str(script), "--after", str(draft), "--json"],
+                                  capture_output=True, text=True, encoding="utf-8")
+    else:
+        proc = subprocess.run([sys.executable, str(script), "--after", str(entry), "--json"],
+                              capture_output=True, text=True, encoding="utf-8")
     try:
         report = json.loads(proc.stdout)
     except ValueError:

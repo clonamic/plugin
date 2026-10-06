@@ -5,11 +5,11 @@
   profile          parse and validate profile.md
   prepare --on D   collect the commits AUTHORED on date/range D (default today) -> score -> progress -> redact;
                    D = YYYY-MM-DD | MM-DD | 오늘 | 어제 | 그제 | A~B. Prints the abstracted run, saves .run.json
-  gate             check an entry file (leaks, entry contract, banned wording, numbers)   exit 2 blocked
+  gate             check an entry file (--entry FILE or - for stdin) (leaks, entry contract, banned wording, numbers)   exit 2 blocked
   write            gate, then write <date>.md (replaces the same date), update state.json and index.md
   korean           run clonamic-korean's check_revision.py (draft mode) on an entry   exit 0/1/2, 4 not installed
   forget --date D  delete one day's entry, state and index line; prints the Notion page to trash by hand
-  notion-set       record a Notion page id/url in state.json
+  notion-set       record a Notion page id/url in state.json and refresh the table in notion.md
   status           stored cursors, days, Notion ids (no commit data)
   portfolio        roll-up data for the portfolio summary
   write-portfolio  gate (portfolio kind), then write portfolio.md
@@ -49,6 +49,16 @@ from common import (RUN_FILE, SENSITIVE_PATHSPEC, TaskLogError, git, git_ok, loa
 def emit(obj: dict, code: int = 0) -> int:
     print(json.dumps(obj, ensure_ascii=False, indent=2))
     return code
+
+
+def read_entry(arg: str) -> str:
+    """`-` reads the draft from stdin (no temp file needed); anything else is a file path."""
+    if arg == "-":
+        text = sys.stdin.buffer.read().decode("utf-8")
+        if not text.strip():
+            raise TaskLogError("empty input", "초안을 표준 입력으로 넘기세요(heredoc).")
+        return text
+    return Path(arg).read_text(encoding="utf-8")
 
 
 def with_repo_terms(repo: Path, profile, extra_paths: list[str]):
@@ -155,7 +165,7 @@ def load_run(repo: Path, logs: Path) -> dict:
 def cmd_gate(args) -> int:
     repo, logs, _ = open_project(Path(args.repo), args.agent_dir)
     profile = load_profile(logs)
-    text = Path(args.entry).read_text(encoding="utf-8")
+    text = read_entry(args.entry)
     if args.kind == "entry":
         run = load_run(repo, logs)
         profile.repo_terms = run["repo_terms"]
@@ -171,7 +181,7 @@ def cmd_write(args) -> int:
     profile = load_profile(logs)
     run = load_run(repo, logs)
     profile.repo_terms = run["repo_terms"]
-    text = Path(args.entry).read_text(encoding="utf-8")
+    text = read_entry(args.entry)
     result = gate.check(text, profile, run, "entry")
     if not result["ok"]:
         return emit({"ok": False, "status": "blocked"} | result, 2)
@@ -185,13 +195,16 @@ def cmd_forget(args) -> int:
 
 
 def cmd_korean(args) -> int:
-    result, code = korean.check(Path(args.entry) if args.entry else None)
+    if args.entry == "-":
+        result, code = korean.check(None, text=read_entry("-"))
+    else:
+        result, code = korean.check(Path(args.entry) if args.entry else None)
     return emit(result, code)
 
 
 def cmd_notion_set(args) -> int:
     repo, logs, state = open_project(Path(args.repo), args.agent_dir)
-    return emit({"ok": True} | write.set_notion(repo, logs, state, args.kind, args.id, args.url, args.date, args.title))
+    return emit({"ok": True} | write.set_notion(repo, logs, state, args.kind, args.id, args.url, args.date, args.title, repo_name(repo)))
 
 
 def cmd_status(args) -> int:
@@ -217,7 +230,7 @@ def cmd_portfolio(args) -> int:
 def cmd_write_portfolio(args) -> int:
     repo, logs, _ = open_project(Path(args.repo), args.agent_dir)
     profile = with_repo_terms(repo, load_profile(logs), [])
-    text = Path(args.entry).read_text(encoding="utf-8")
+    text = read_entry(args.entry)
     result = gate.check(text, profile, None, "portfolio")
     if not result["ok"]:
         return emit({"ok": False, "status": "blocked"} | result, 2)
@@ -279,18 +292,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--on", default="", help="work date: YYYY-MM-DD, MM-DD, 오늘/어제/그제, or a range A~B (default: today)")
     p.set_defaults(func=cmd_prepare)
     p = sub.add_parser("gate")
-    p.add_argument("--entry", required=True)
+    p.add_argument("--entry", required=True, help="draft file, or - to read it from stdin")
     p.add_argument("--kind", choices=["entry", "portfolio"], default="entry")
     p.set_defaults(func=cmd_gate)
     p = sub.add_parser("write")
-    p.add_argument("--entry", required=True)
+    p.add_argument("--entry", required=True, help="draft file, or - to read it from stdin")
     p.add_argument("--replace-past", action="store_true", help="ignored; kept so older commands still run")
     p.set_defaults(func=cmd_write)
     p = sub.add_parser("forget")
     p.add_argument("--date", required=True, help="entry key: YYYY-MM-DD, or the range key YYYY-MM-DD~YYYY-MM-DD")
     p.set_defaults(func=cmd_forget)
     p = sub.add_parser("korean")
-    p.add_argument("--entry", help="draft to check; without it, only locate clonamic-korean")
+    p.add_argument("--entry", help="draft file or - (stdin) to check; without it, only locate clonamic-korean")
     p.set_defaults(func=cmd_korean)
     p = sub.add_parser("notion-set")
     p.add_argument("--kind", required=True)
@@ -302,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status").set_defaults(func=cmd_status)
     sub.add_parser("portfolio").set_defaults(func=cmd_portfolio)
     p = sub.add_parser("write-portfolio")
-    p.add_argument("--entry", required=True)
+    p.add_argument("--entry", required=True, help="draft file, or - to read it from stdin")
     p.set_defaults(func=cmd_write_portfolio)
     sub.add_parser("rebind").set_defaults(func=cmd_rebind)
     p = sub.add_parser("save")

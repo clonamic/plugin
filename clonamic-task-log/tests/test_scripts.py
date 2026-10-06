@@ -837,6 +837,146 @@ class SaveCommandTests(unittest.TestCase):
         self.assertFalse((repo.path / ".claude/log-part/profile.md").exists())
 
 
+class StdinEntryTests(unittest.TestCase):
+    """--entry - reads the draft from stdin; no temp file is left anywhere."""
+
+    def setUp(self) -> None:
+        self.base = Path(tempfile.mkdtemp(dir=_TMP.name))
+        self.tmpdir = self.base / "tmpdir"
+        self.tmpdir.mkdir()
+        self.repo = Repo(self.base, "stdin")
+        build_payments(self.repo)
+        self.repo.profile()
+        self.result = prepare(self.repo)
+        self.text = entry_for(self.result)
+
+    def _stdin(self, *args: str, text: str | None = None, env: dict | None = None) -> tuple[int, dict]:
+        env = (env or GIT_ENV) | {"PYTHONDONTWRITEBYTECODE": "1", "TMPDIR": str(self.tmpdir), "TEMP": str(self.tmpdir),
+                                  "TMP": str(self.tmpdir)}
+        proc = subprocess.run([sys.executable, str(TASKLOG), "--repo", str(self.repo.path), "--agent-dir", ".claude", *args],
+                              input=self.text if text is None else text, capture_output=True, text=True, env=env)
+        return proc.returncode, json.loads(proc.stdout)
+
+    def test_gate_and_write_from_stdin(self) -> None:
+        code, out = self._stdin("gate", "--entry", "-")
+        self.assertEqual((code, out["ok"]), (0, True), out)
+        code, out = self._stdin("write", "--entry", "-")
+        self.assertEqual(code, 0, out)
+        self.assertTrue((self.repo.path / f".claude/log-part/{DAY}.md").is_file())
+        self.assertEqual(list(self.tmpdir.iterdir()), [])
+
+    def test_gate_blocks_from_stdin(self) -> None:
+        code, out = self._stdin("gate", "--entry", "-", text=self.text + "\n파일 src/payments/api.py 수정\n")
+        self.assertEqual(code, 2)
+
+    def test_empty_stdin_is_a_usage_error(self) -> None:
+        code, out = self._stdin("gate", "--entry", "-", text="  \n")
+        self.assertEqual((code, out["ok"]), (3, False))
+
+    def test_write_portfolio_from_stdin(self) -> None:
+        text = "# 포트폴리오 요약\n\n## 역할\n- 백엔드 개발을 맡았습니다.\n"
+        code, out = self._stdin("write-portfolio", "--entry", "-", text=text)
+        if code == 2:  # structure rules are owned by the gate; only the stdin path matters here
+            self.assertEqual(out["status"], "blocked")
+        else:
+            self.assertEqual(code, 0, out)
+            self.assertTrue((self.repo.path / ".claude/log-part/portfolio.md").is_file())
+        self.assertEqual(list(self.tmpdir.iterdir()), [])
+
+    def test_korean_stdin_uses_a_temp_file_only_inside_the_process(self) -> None:
+        fake = self.base / "korean/scripts/check_revision.py"
+        fake.parent.mkdir(parents=True)
+        fake.write_text("import json, sys\n"
+                        "path = sys.argv[sys.argv.index('--after') + 1]\n"
+                        "print(json.dumps({'text': open(path, encoding='utf-8').read(), 'path': path}))\n",
+                        encoding="utf-8")
+        env = GIT_ENV | {"CLONAMIC_KOREAN_ROOT": str(self.base / "korean")}
+        code, out = self._stdin("korean", "--entry", "-", text="안녕하세요\n", env=env)
+        self.assertEqual((code, out["report"]["text"]), (0, "안녕하세요\n"), out)
+        self.assertFalse(Path(out["report"]["path"]).exists())
+        self.assertEqual(list(self.tmpdir.iterdir()), [])
+
+    def test_file_paths_still_work(self) -> None:
+        entry = self.base / "draft.md"
+        entry.write_text(self.text, encoding="utf-8")
+        code, out = run(self.repo.path, "gate", "--entry", str(entry))
+        self.assertEqual(code, 0, out)
+
+
+class NotionMdSyncTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.base = Path(tempfile.mkdtemp(dir=_TMP.name))
+        self.repo = Repo(self.base, "nm")
+        self.notion = self.repo.path / ".claude/log-part/notion.md"
+
+    def test_creates_notion_md_from_template_when_missing(self) -> None:
+        code, out = run(self.repo.path, "notion-set", "--kind", "log", "--id", "abc123", "--url", "https://n.so/abc", "--title", "작업로그")
+        self.assertEqual(code, 0, out)
+        text = self.notion.read_text(encoding="utf-8")
+        self.assertIn("# Notion 위치", text)
+        self.assertIn("| 작업로그 | 작업로그 | abc123 | https://n.so/abc |", text)
+        self.assertIn("| 프로젝트 | nm |", text)
+        self.assertIn("## 구조", text)
+
+    def test_rewrites_only_the_table_and_keeps_user_text(self) -> None:
+        run(self.repo.path, "notion-set", "--kind", "log", "--id", "abc123")
+        text = self.notion.read_text(encoding="utf-8")
+        self.notion.write_text(text + "\n## 메모\n내가 쓴 글\n", encoding="utf-8")
+        run(self.repo.path, "notion-set", "--kind", "day", "--id", "d1", "--url", "https://n.so/d1", "--date", DAY, "--title", DAY)
+        run(self.repo.path, "notion-set", "--kind", "log", "--id", "zzz999")
+        after = self.notion.read_text(encoding="utf-8")
+        self.assertIn("내가 쓴 글", after)
+        self.assertIn("zzz999", after)
+        self.assertNotIn("abc123", after)
+        self.assertIn(f"| 날짜 기록 | {DAY} | d1 | https://n.so/d1 |", after)
+        self.assertEqual(after.count("| 작업로그 |"), 1)
+
+    def test_replaces_a_hand_written_table_without_markers(self) -> None:
+        logs = self.repo.path / ".claude/log-part"
+        logs.mkdir(parents=True)
+        self.notion.write_text("# 내 Notion\n\n앞글\n\n| 역할 | 제목 | ID | URL |\n|---|---|---|---|\n| 루트 | x | y | |\n\n뒷글\n",
+                               encoding="utf-8")
+        run(self.repo.path, "notion-set", "--kind", "progress", "--id", "p1")
+        text = self.notion.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("# 내 Notion\n\n앞글\n\n"))
+        self.assertIn("뒷글", text)
+        self.assertIn("| 진행 현황 | 진행 현황 | p1 |", text)
+        self.assertNotIn("| 루트 | x | y |", text)
+
+
+class WritableCheckTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.base = Path(tempfile.mkdtemp(dir=_TMP.name))
+        self.repo = Repo(self.base, "wr")
+
+    def _check(self, agent_dir: str = ".claude") -> tuple[int, dict]:
+        proc = subprocess.run([sys.executable, str(TASKLOG), "--repo", str(self.repo.path), "--agent-dir", agent_dir, "preflight"],
+                              capture_output=True, text=True, env=GIT_ENV | {"PYTHONDONTWRITEBYTECODE": "1"})
+        out = json.loads(proc.stdout)
+        return proc.returncode, {c["name"]: c for c in out["checks"]}
+
+    def test_writable_is_ok_and_leaves_no_probe(self) -> None:
+        code, checks = self._check()
+        self.assertTrue(checks["log-part-writable"]["ok"], checks)
+        self.assertEqual(list((self.repo.path / ".claude/log-part").iterdir()), [])
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "needs a non-root POSIX user")
+    def test_read_only_dir_fails_with_host_specific_fix(self) -> None:
+        for agent_dir, needle in ((".claude", "Edit(.claude/log-part/**)"),
+                                  (".codex", "sandbox_workspace_write.writable_roots=[\"" + str(self.repo.path.resolve()) + "/.codex\"]"),
+                                  (".cursor", "승인"), (".grok", "승인")):
+            (self.repo.path / agent_dir / "log-part").mkdir(parents=True, exist_ok=True)
+            (self.repo.path / agent_dir / "log-part").chmod(0o555)
+            try:
+                code, checks = self._check(agent_dir)
+            finally:
+                (self.repo.path / agent_dir / "log-part").chmod(0o755)
+            self.assertEqual(code, 1, agent_dir)
+            check = checks["log-part-writable"]
+            self.assertFalse(check["ok"])
+            self.assertIn(needle, check["fix"], agent_dir)
+
+
 class WorkItemTotalsTests(unittest.TestCase):
     def test_totals_are_precomputed_per_work_item(self) -> None:
         sys.path.insert(0, str(TASKLOG.parent))

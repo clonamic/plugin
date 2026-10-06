@@ -41,7 +41,7 @@ user-invocable: true
 
 ## 2. 준비
 
-1. `preflight`를 실행한다. `ok`가 false면 실패한 항목의 `fix`를 그대로 보여 주고 멈춘다. `.gitignore`나 `.git/info/exclude`를 대신 고치지 않는다. 필요한 것은 git 설치, 원격이 있는 저장소, git 사용자 신원, git에서 무시되는 에이전트 폴더, Python 3.12 이상이다.
+1. `preflight`를 실행한다. `ok`가 false면 실패한 항목의 `fix`를 그대로 보여 주고 멈춘다. `.gitignore`나 `.git/info/exclude`를 대신 고치지 않는다. 필요한 것은 git 설치, 원격이 있는 저장소, git 사용자 신원, git에서 무시되는 에이전트 폴더, `log-part` 쓰기 권한(`log-part-writable`), Python 3.12 이상이다.
 2. Notion MCP 도구(검색, 조회, 페이지 생성, 페이지 수정)가 내 도구 목록에 있는지 직접 확인한다. 없으면 멈추지 않고 로컬 기록까지 한 뒤 Notion은 보고서에 `승인 시 진행`으로 남긴다.
 3. `first_run`이 true면 [setup](references/setup.md)대로 한 메시지로 묻고, 답으로 profile.md·notion.md·notion-template.md를 `tasklog.py save --name <파일> < 내용`으로 저장하고 Notion 페이지를 만든다. 답을 기다리는 동안 다음 단계로 가지 않는다.
 4. **한국어 검사 도구.** 아래 명령으로 clonamic-korean이 있는지 확인한다.
@@ -94,9 +94,17 @@ python3 "$SKILL_DIR/scripts/tasklog.py" --agent-dir <에이전트 폴더> prepar
    | 서브에이전트를 쓸 수 없음 | 리더가 같은 본문을 따라 차례로 직접 쓰고, 보고서에 "작성자 서브에이전트 없이 리더가 작성" 한 줄을 남긴다 |
 
 3. **리더가 검토한다.** 초안을 [entry](references/entry.md)와 대조한다. 헤딩과 순서, 항목마다 문제·한 일·결과, 통계 문장(커밋·파일·줄 수)이나 얼버무림이 없는지, 숫자가 입력에서 온 것인지, 내용이 작업 메모와 맞는지 본다.
-4. **게이트.** 초안을 OS 임시 폴더의 파일(예: `mktemp`로 만든 경로)에 저장하고 `gate --entry <파일>`을 실행한다. 종료 코드 2면 `blocked` 목록을 작성자에게 돌려 그 줄만 고치게 한다(서브에이전트가 없으면 리더가 고친다). 게이트 판정을 눈대중으로 뒤집지 않는다. 세 번 고쳐도 막히면 멈추고 남은 항목을 보고한다.
-5. **한국어 검사.** 게이트를 통과한 초안에 `korean --entry <파일>`을 실행한다. 종료 코드 2면 `report`를 작성자에게 돌려 고치고 게이트부터 다시 한다. 1(경고)은 보고서에 한 줄 적고 진행한다. `found`가 false면 이 단계는 건너뛴다.
-6. **저장.** `write --entry <파일>`로 저장한다. 날짜 키가 이번 실행(`.run.json`)과 같은지 확인하고, 해당 블록만 바꾸고(블록 밖에 사용자가 쓴 글은 그대로), state.json과 index.md를 갱신한다. 같은 근거와 같은 본문이면 `unchanged`다.
+4. **게이트.** 초안은 파일로 만들지 않고 표준 입력(heredoc)으로 넘긴다. 임시 파일·임시 폴더를 리더가 만들지 않는다(호스트 샌드박스가 프로젝트 밖 파일을 지우지 못해 쌓인다).
+
+```bash
+python3 "$SKILL_DIR/scripts/tasklog.py" --agent-dir <에이전트 폴더> gate --entry - <<'EOF_ENTRY'
+<초안 전문>
+EOF_ENTRY
+```
+
+   종료 코드 2면 `blocked` 목록을 작성자에게 돌려 그 줄만 고치게 한다(서브에이전트가 없으면 리더가 고친다). 게이트 판정을 눈대중으로 뒤집지 않는다. 세 번 고쳐도 막히면 멈추고 남은 항목을 보고한다.
+5. **한국어 검사.** 게이트를 통과한 같은 초안을 `korean --entry -`와 heredoc으로 넘긴다(임시 파일은 스크립트가 프로세스 안에서 만들고 지운다). 종료 코드 2면 `report`를 작성자에게 돌려 고치고 게이트부터 다시 한다. 1(경고)은 보고서에 한 줄 적고 진행한다. `found`가 false면 이 단계는 건너뛴다.
+6. **저장.** 같은 초안을 `write --entry -`와 heredoc으로 넘겨 저장한다. 이미 있는 파일 경로도 `--entry <경로>`로 쓸 수 있다. 날짜 키가 이번 실행(`.run.json`)과 같은지 확인하고, 해당 블록만 바꾸고(블록 밖에 사용자가 쓴 글은 그대로), state.json과 index.md를 갱신한다. 같은 근거와 같은 본문이면 `unchanged`다.
 
 ## 5. Notion 동기화
 
@@ -106,7 +114,7 @@ python3 "$SKILL_DIR/scripts/tasklog.py" --agent-dir <에이전트 폴더> prepar
 - 날짜 페이지 후보가 0개면 만들고, 1개면 갱신하고, 2개 이상이면 멈추고 보고한다.
 - 제목은 `YYYY-MM-DD`(기간은 `MMDD~MMDD`), 첫 블록은 대표 성과 한 줄이고 본문은 로컬 기록과 같다. 본문이 같으면 쓰지 않는다.
 - 생성 응답이 끊기면 다시 만들지 않고 검색·조회로 찾는다.
-- 쓴 뒤 다시 조회해 제목, 첫 블록, 절 제목을 확인하고 `notion-set`으로 ID를 적는다. 그다음 진행 현황 페이지(기능 · 진행률 · 최근 변화 · 남은 일)를 갱신한다. 프로젝트 전체 진행은 이 페이지가 맡고, 날짜 기록의 진행 상황 표에는 그날 손댄 기능만 있다.
+- 쓴 뒤 다시 조회해 제목, 첫 블록, 절 제목을 확인하고 `notion-set`으로 ID를 적는다(state.json과 `notion.md`의 위치 표가 함께 갱신된다. 표 밖에 사용자가 쓴 글은 그대로다). 그다음 진행 현황 페이지(기능 · 진행률 · 최근 변화 · 남은 일)를 갱신한다. 프로젝트 전체 진행은 이 페이지가 맡고, 날짜 기록의 진행 상황 표에는 그날 손댄 기능만 있다.
 - 메타데이터와 HTML 주석은 Notion에 넣지 않는다. Notion MCP가 없거나 실패하면 로컬 기록은 그대로 두고 `승인 시 진행`으로 남긴다.
 
 - Notion MCP로는 페이지를 휴지통에 보낼 수 없다. 지워야 할 페이지는 url을 보고서에 사용자 조치로 적는다.
@@ -115,7 +123,7 @@ python3 "$SKILL_DIR/scripts/tasklog.py" --agent-dir <에이전트 폴더> prepar
 
 1. `portfolio`로 전체 기록의 묶음 데이터를 받는다.
 2. [portfolio](references/portfolio.md)의 구조(역할 한 줄, 대표 성과 3~5, 기능별 기여, 사용 기술, 문제 해결 사례 2~3)로 쓴다. 4절처럼 작성자에게 맡기면 묶음 데이터와 portfolio 문서 경로를 넘긴다. 기록에 있는 사실과 숫자만 쓰고 새 사실을 더하지 않는다.
-3. `write-portfolio --entry <파일>`로 게이트를 거쳐 `log-part/portfolio.md`에 저장하고, Notion 작업로그 아래 `포트폴리오 요약` 페이지를 같은 0/1/2+ 규칙으로 만들거나 갱신한 뒤 `notion-set --kind portfolio`로 적는다.
+3. `write-portfolio --entry -`(heredoc)로 게이트를 거쳐 `log-part/portfolio.md`에 저장하고, Notion 작업로그 아래 `포트폴리오 요약` 페이지를 같은 0/1/2+ 규칙으로 만들거나 갱신한 뒤 `notion-set --kind portfolio`로 적는다.
 
 ## 7. 보고
 
@@ -137,6 +145,16 @@ python3 "$SKILL_DIR/scripts/tasklog.py" --agent-dir <에이전트 폴더> prepar
 
 - 해당 없는 절과 줄은 뺀다. 기록 본문을 보고서에 다시 붙이지 않는다. 사용자가 보여 달라고 하면 그때 보여 준다.
 - 보고서 안의 경로는 log-part 안의 기록 파일만 쓴다.
+
+## 쓰기 권한
+
+호스트는 자기 설정 폴더(`.claude/`, `.codex/`)를 샌드박스로 보호해서 `log-part/` 쓰기가 PermissionError로 실패할 수 있다. `preflight`의 `log-part-writable`이 CLI로만 확인하고, 실패하면 아래 조치를 `fix`로 알려 준다. 호스트 설정은 직접 고치지 않는다. 사용자가 적용한다.
+
+| 호스트 | 조치 |
+|---|---|
+| Claude Code | 권한에서 `Edit(.claude/log-part/**)`를 허용하거나, 쓰기 확인창이 뜨면 승인 |
+| Codex | 이 세션에만 `codex -c 'sandbox_workspace_write.writable_roots=["<프로젝트>/.codex"]'`로 실행하거나, 대화형이면 CLI 쓰기 명령의 권한 상승 요청을 승인 |
+| Cursor, Grok | 쓰기 확인창이 뜨면 승인 |
 
 ## 기록 정정
 

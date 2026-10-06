@@ -101,8 +101,78 @@ def render_index(state: dict, project: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+NOTION_START = "<!-- tasklog:pages:start -->"
+NOTION_END = "<!-- tasklog:pages:end -->"
+NOTION_ROLES = (("root", "루트", "개인 페이지", "(워크스페이스 개인 영역)"),
+                ("project", "프로젝트", "", ""),
+                ("log", "작업로그", "작업로그", ""),
+                ("progress", "진행 현황", "진행 현황", ""),
+                ("portfolio", "포트폴리오 요약", "포트폴리오 요약", "(포트폴리오 정리 때 생성)"))
+NOTION_TEMPLATE = """# Notion 위치
+
+- 경로: 개인 페이지 / {project} / 작업로그
+- 루트 페이지: 개인 페이지
+- 템플릿: notion-template.md
+
+## 페이지
+
+{block}
+
+## 구조
+
+작업로그
+├── 진행 현황        기능별 진행률·최근 변화·남은 일, 실행마다 갱신
+├── 포트폴리오 요약   `포트폴리오 정리` 때 만들고 갱신
+├── 2026-10-05       날짜 기록(제목은 날짜만)
+└── 0928~1002        기간 기록(제목은 MMDD~MMDD)
+"""
+
+
+def _cell(text: str) -> str:
+    return str(text or "").replace("|", "\\|").replace("\n", " ")
+
+
+def render_notion_block(state: dict, project: str) -> str:
+    notion = state.get("notion", {})
+    rows = ["| 역할 | 제목 | ID | URL |", "|---|---|---|---|"]
+    for key, role, title, placeholder in NOTION_ROLES:
+        rec = notion.get(key) or {}
+        shown = rec.get("title") or (project if key == "project" else title)
+        rows.append(f"| {role} | {_cell(shown)} | {_cell(rec.get('id') or placeholder)} | {_cell(rec.get('url'))} |")
+    for day, rec in sorted(notion.get("days", {}).items()):
+        shown = rec.get("title") or day
+        rows.append(f"| 날짜 기록 | {_cell(shown)} | {_cell(rec.get('id'))} | {_cell(rec.get('url'))} |")
+    return "\n".join([NOTION_START, *rows, NOTION_END])
+
+
+def sync_notion_md(logs: Path, state: dict, project: str) -> str:
+    """Rewrite only the location table in notion.md; user text outside the table block is kept."""
+    path = logs / "notion.md"
+    block = render_notion_block(state, project)
+    if not path.is_file():
+        text = NOTION_TEMPLATE.format(project=project, block=block)
+    else:
+        text = path.read_text(encoding="utf-8")
+        if NOTION_START in text and NOTION_END in text[text.index(NOTION_START):]:
+            head, rest = text.split(NOTION_START, 1)
+            text = head + block + rest.split(NOTION_END, 1)[1]
+        else:
+            lines = text.split("\n")
+            start = next((i for i, ln in enumerate(lines) if re.match(r"^\|\s*역할\s*\|", ln)), None)
+            if start is not None:
+                end = start
+                while end < len(lines) and lines[end].lstrip().startswith("|"):
+                    end += 1
+                lines[start:end] = block.split("\n")
+                text = "\n".join(lines)
+            else:
+                text = text.rstrip("\n") + "\n\n## 페이지\n\n" + block + "\n"
+    write_text_atomic(path, text)
+    return str(path)
+
+
 def set_notion(repo: Path, logs: Path, state: dict, kind: str, page_id: str, url: str = "", day: str = "",
-               title: str = "") -> dict:
+               title: str = "", project: str = "") -> dict:
     if kind not in NOTION_KINDS:
         raise TaskLogError(f"unknown notion kind {kind!r}", f"--kind 는 {sorted(NOTION_KINDS)} 중 하나입니다.")
     record = {"id": page_id, "url": url, "title": title}
@@ -114,7 +184,12 @@ def set_notion(repo: Path, logs: Path, state: dict, kind: str, page_id: str, url
     else:
         state["notion"][kind] = record
     write_json(logs / "state.json", state)
-    return {"status": "recorded", "kind": kind}
+    result = {"status": "recorded", "kind": kind}
+    try:
+        result["notion_md"] = sync_notion_md(logs, state, project or logs.parent.parent.name)
+    except OSError as exc:  # state.json is the source of truth; a guarded folder must not fail the record
+        result["notion_md_error"] = f"{type(exc).__name__}: {exc.strerror or exc}"
+    return result
 
 
 def forget_day(logs: Path, state: dict, day: str, project: str) -> dict:
