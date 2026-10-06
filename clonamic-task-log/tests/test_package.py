@@ -93,11 +93,11 @@ class StructureTests(unittest.TestCase):
         self.assertLess(skill.index("korean"), skill.index("prepare --on"))
         self.assertNotRegex(skill, r"HTML 주석[을를]? (넣|쓴|남긴)")
         manifest = json.loads((ROOT / "plugin.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.2.0")
+        self.assertEqual(manifest["version"], "1.2.1")
         for sub in (".claude-plugin", ".codex-plugin", ".cursor-plugin"):
             path = ROOT / sub / "plugin.json"
             if path.is_file():
-                self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["version"], "1.2.0", sub)
+                self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["version"], "1.2.1", sub)
 
     def test_entry_template_headings(self) -> None:
         text = (SKILL / "references" / "entry.md").read_text(encoding="utf-8")
@@ -137,7 +137,7 @@ class StructureTests(unittest.TestCase):
         self.assertEqual(headings[0], "## 핵심 요약")
         self.assertGreater(hangul_ratio(text), 0.5)
         for topic in ("log-part", "개인페이지 / project / <프로젝트명> / 작업로그", "clonamic-task-logger", "(측정)", "rebind",
-                      "1.1.0", "1.2.0", "[날짜]", "다시 정리", "마일스톤 미설정"):
+                      "1.1.0", "1.2.1", "[날짜]", "다시 정리", "마일스톤 미설정"):
             self.assertIn(topic, text)
 
     def test_no_portfolio_sentence_section_anywhere_and_new_default_path(self) -> None:

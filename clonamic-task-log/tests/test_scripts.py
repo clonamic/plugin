@@ -211,6 +211,18 @@ class NotesCheckTests(unittest.TestCase):
         none = GOOD_NOTES.replace("샌드박스에서 실제 영수증 사진 한 장으로 인식을 돌려 금액과 날짜가 맞는 것을 확인했습니다.", "없음")
         self.assertEqual(self.tokens(none), [])
 
+    def test_user_delivered_facts_count_as_facts(self) -> None:
+        one_fact = GOOD_NOTES.replace("- 사실: 후보마다 가설 문장을 만들어 문장 판정 모델로 점수를 매겼습니다.\n", "")
+        delivered = one_fact.replace("- 판단:", "- 전달: 세 개발 도구에서 직접 돌려 두 곳에서만 저장이 막히는 것을 확인했다고 했습니다.\n- 판단:")
+        self.assertIn("facts-missing", self.tokens(one_fact))
+        self.assertEqual(self.tokens(delivered), [])
+        result = gate.notes_problems(delivered, parse_profile(PROFILE))
+        self.assertEqual((result["items"][0]["facts"], result["items"][0]["delivered"]), (2, 1))
+        short = one_fact.replace("- 판단:", "- 전달: 직접 돌려 봤음\n- 판단:")
+        self.assertIn("fact-short", self.tokens(short))
+        dup = GOOD_NOTES.replace("- 판단:", "- 전달: 한국어 글자 인식 뒤 정규식으로 금액과 날짜 후보를 뽑았다고 했습니다.\n- 판단:")
+        self.assertIn("fact-duplicate", self.tokens(dup))
+
     def test_old_confirm_label_is_rejected(self) -> None:
         self.assertIn("format", self.tokens(GOOD_NOTES + "- 확인: 한 번 돌려 봤습니다.\n"))
 
@@ -650,6 +662,17 @@ class GateTests(unittest.TestCase):
 
     def test_title_format_is_required(self) -> None:
         self.blocked("title", ("# 2026-09-29 · 결제 요청 API 신설", "# 2026-09-29 작업 기록"))
+
+    def test_title_is_one_short_outcome(self) -> None:
+        self.assertNotIn("title-length", self.tokens(self.entry()))
+        self.blocked("title-length", ("# 2026-09-29 · 결제 요청 API 신설", "# 2026-09-29 · " + "결제 요청 처리 흐름을 새로 만들고 시험으로 고정한 일" * 2))
+        self.blocked("title-chain", ("# 2026-09-29 · 결제 요청 API 신설", "# 2026-09-29 · 결제 요청 신설 및 환불 정리"))
+        self.blocked("title-chain", ("# 2026-09-29 · 결제 요청 API 신설", "# 2026-09-29 · 결제 신설 그리고 환불 정리"))
+
+    def test_mechanics_jargon_blocks_in_prose(self) -> None:
+        for word in ("정규식", "해시", "익명화", "하한", "상한값"):
+            self.blocked("mechanics", ("진입점이", f"{word}로 진입점이"))
+        self.assertNotIn("mechanics", self.tokens(self.entry()))
 
     def test_old_format_is_rejected(self) -> None:
         self.assertIn("section", self.tokens("# 2026-09-29 작업 기록\n\n## 한눈에 보기\n- 날짜 — 2026-09-29\n"))

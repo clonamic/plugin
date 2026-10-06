@@ -46,8 +46,12 @@ GOAL_END_RE = re.compile(r"(?:야\s*(?:했|하였|합)(?:습니다|다)|필요(?
 NOTE_FACT_MIN = 15
 NOTE_VERIFY_MIN = 10
 NO_VERIFICATION = "없음"
-NOTE_LABELS = ("이전 상태", "영향", "사실", "판단", "검증")
-NOTE_LINE = re.compile(r"^-\s*(이전 상태|영향|사실|판단|검증)\s*:\s*(.*)$")
+NOTE_LABELS = ("이전 상태", "영향", "사실", "전달", "판단", "검증")  # 전달 = a fact the user stated outside git
+NOTE_LINE = re.compile(r"^-\s*(이전 상태|영향|사실|전달|판단|검증)\s*:\s*(.*)$")
+TITLE_MAX = 30  # characters after '· '
+TITLE_CHAIN_RE = re.compile(r"\s(?:및|그리고)\s")
+MECHANICS = ["정규식", "해시", "익명화", "하한", "상한값"]  # implementation jargon an outsider cannot follow
+MECHANICS_RE = re.compile("|".join(map(re.escape, MECHANICS)))
 PERCENT_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*%(?!p)")
 
 
@@ -100,6 +104,8 @@ def wording_problems(text: str, run: dict | None) -> list[dict]:
             add("empty-cell", "a lone '-' is not content: write the value or drop the line/cell", number)
         for m in HEDGE_RE.finditer(line):
             add("hedging", f"hedging '{m.group()}': state what was done", number)
+        for m in MECHANICS_RE.finditer(line):
+            add("mechanics", f"implementation jargon '{m.group()}': say what it does for the reader in plain words", number)
         for m in COUNT_RE.finditer(line):
             add("count", f"git statistic '{m.group()}': describe the change instead", number)
         if run is None:
@@ -133,7 +139,9 @@ def _near_duplicate(a: str, b: str) -> bool:
 
 
 def notes_problems(text: str, profile: Profile | None = None) -> dict:
-    """Validate leader WORK NOTES: '### <목표·성과 단위>' items with 이전 상태 x1, 영향 x1, 사실 x2+, 판단 x1+, 검증 x1."""
+    """Validate leader WORK NOTES: '### <목표·성과 단위>' items with 이전 상태 x1, 영향 x1, 사실+전달 x2+, 판단 x1+, 검증 x1.
+
+    '- 전달:' lines carry facts the user stated outside git (real runs, comparisons); they count as facts."""
     problems: list[dict] = []
 
     def add(rule: str, detail: str, line: int = 0, item: str = "") -> None:
@@ -151,7 +159,7 @@ def notes_problems(text: str, profile: Profile | None = None) -> dict:
         elif m := NOTE_LINE.match(line):
             items[-1]["rows"].append((m.group(1), m.group(2).strip(), number))
         else:
-            add("format", "line must be '- 이전 상태:', '- 영향:', '- 사실:', '- 판단:' or '- 검증:'", number, items[-1]["name"])
+            add("format", "line must be '- 이전 상태:', '- 영향:', '- 사실:', '- 전달:', '- 판단:' or '- 검증:'", number, items[-1]["name"])
     if not items:
         add("format", "notes need at least one '### <목표·성과 단위>' work item")
     if len(items) > MAX_ITEMS:
@@ -161,7 +169,8 @@ def notes_problems(text: str, profile: Profile | None = None) -> dict:
         if not name:
             add("format", "empty item heading", it["line"])
         by = {label: [r for r in rows if r[0] == label] for label in NOTE_LABELS}
-        prior, facts = by["이전 상태"], by["사실"]
+        prior = by["이전 상태"]
+        facts = sorted(by["사실"] + by["전달"], key=lambda r: r[2])
         for label in ("이전 상태", "영향", "검증"):
             if len(by[label]) != 1:
                 add("prior-state" if label == "이전 상태" else f"{label}-count",
@@ -173,10 +182,10 @@ def notes_problems(text: str, profile: Profile | None = None) -> dict:
                 add("prior-state-goal", "이전 상태 must describe what existed or was wrong before (기존/이전/없었/비어/하나로/통째로/"
                     "수동/매번/모든/의존/섞여 …, or a past-state ending with 만/뿐/그대로/채/이후), not restate the goal", number, name)
         if len(facts) < 2:
-            add("facts-missing", f"needs at least 2 '- 사실:' (found {len(facts)})", it["line"], name)
+            add("facts-missing", f"needs at least 2 '- 사실:' or '- 전달:' lines (found {len(facts)})", it["line"], name)
         for i, (_, body, number) in enumerate(facts):
             if len(body) < NOTE_FACT_MIN:
-                add("fact-short", f"사실 must be at least {NOTE_FACT_MIN} characters of concrete detail", number, name)
+                add("fact-short", f"사실/전달 must be at least {NOTE_FACT_MIN} characters of concrete detail", number, name)
             for _, other, _ in facts[:i]:
                 if _near_duplicate(body, other):
                     add("fact-duplicate", "사실 repeats another 사실 of this item; give a different concrete fact", number, name)
@@ -194,7 +203,8 @@ def notes_problems(text: str, profile: Profile | None = None) -> dict:
         problems.append({"kind": hit["kind"], "token": token, "item": "", "detail": "leak: use feature words only",
                          "line": hit["line"]})
     summary = [{"feature": it["name"], "prior": sum(r[0] == "이전 상태" for r in it["rows"]),
-                "facts": sum(r[0] == "사실" for r in it["rows"]),
+                "facts": sum(r[0] in ("사실", "전달") for r in it["rows"]),
+                "delivered": sum(r[0] == "전달" for r in it["rows"]),
                 "verified": any(r[0] == "검증" and r[1].strip() != NO_VERIFICATION for r in it["rows"])} for it in items]
     return {"ok": not problems, "items": summary, "blocked": problems}
 
@@ -303,6 +313,12 @@ def contract_problems(text: str, profile: Profile | None, run: dict | None, kind
     first = next(((n, ln) for n, ln in enumerate(text.splitlines(), 1) if ln.strip()), (1, ""))
     if not TITLE_RE.match(first[1]):
         add("title", "first line must be '# YYYY-MM-DD · 대표 성과' (range: '# YYYY-MM-DD~YYYY-MM-DD · 대표 성과')", first[0])
+    else:
+        outcome = first[1].split(" · ", 1)[1].strip()
+        if len(outcome) > TITLE_MAX:
+            add("title-length", f"title outcome is {len(outcome)} characters; keep it to {TITLE_MAX} or fewer", first[0])
+        if TITLE_CHAIN_RE.search(outcome):
+            add("title-chain", "title names one outcome: drop ' 및 ' / ' 그리고 ' and keep the most important result", first[0])
     sections = _sections(text)
     titles = [t for t, _, _ in sections]
     for t, number, _ in sections:
