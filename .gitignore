@@ -34,3 +34,7 @@ build/
 .codex/
 .cursor/
 .grok/
+
+# tests stay local (run them from a checkout; they are not shipped)
+tests/
+test/

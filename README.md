@@ -41,7 +41,7 @@ plugin-name/
 │       └── assets/              # 선택. 결과물에 넣는 템플릿·파일
 ├── agents/                      # 선택. 서브에이전트(Claude·Grok·Cursor). 없어도 스킬이 동작해야 함
 ├── mcp.json                     # 선택. MCP 서버
-├── tests/
+├── tests/                       # 로컬 전용. git에 올리지 않음(.gitignore)
 ├── LICENSE
 └── THIRD_PARTY_NOTICES.md       # 외부 자료를 가져왔을 때만
 ```
@@ -70,7 +70,7 @@ my-plugin/
 │   └── core/                    # 공통 로직과 스킬 사이 계약
 ├── skills/
 │   └── skill-name/SKILL.md      # 명령 한 줄로 호출. 분기 판단은 description과 본문이 맡는다
-└── tests/
+└── tests/                       # 로컬 전용. git에 올리지 않음(.gitignore)
 ```
 
 - 외부 패키지가 꼭 필요하면 스크립트 머리에 PEP 723 메타데이터(`# /// script`, `requires-python`, `dependencies`)를 적고 `uv run`으로 실행한다.
