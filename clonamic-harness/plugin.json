@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clonamic-harness",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "Stage-by-stage working discipline for AI coding agents: read the request exactly, gate persistent changes behind at most two Korean approvals (작업명세서 only while intent is unsynced, then 개발명세서), add agents such as an independent reviewer only when they pay off, and finish with fresh-evidence verification and an outcome-first 보고서.",
   "author": {
     "name": "Clonamic"

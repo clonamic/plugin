@@ -12,3 +12,4 @@ Point a project or global `AGENTS.md` at this file (Codex, Cursor, Grok read AGE
 8. Smallest working change; reuse existing code; no over-engineering. Design in library-style modules with single responsibilities when building systems.
 9. Before claiming done, re-check every requirement with fresh evidence from after the last change; if anything is not really done, finish it.
 10. Report once in Korean, top-down and in outline form: a `핵심 요약` first (outcome, then failures and unverified items), then short bullet lists — numbered results with evidence, no narration or prose paragraphs.
+11. Every git commit, amend, tag, pull request, or release goes through the clonamic-git `clonamic-commit` skill: the user's own identity, no AI trailers or footers, and a `scan_history.py` check before any push.

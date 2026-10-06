@@ -28,3 +28,9 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+
+# agent folders (per-project tool state, e.g. task-log)
+.claude/
+.codex/
+.cursor/
+.grok/
