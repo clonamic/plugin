@@ -80,20 +80,19 @@ my-plugin/
 
 ## 매니페스트 동기화
 
-손으로 고치는 매니페스트는 각 플러그인의 루트 `plugin.json` 하나다. 나머지는 스크립트가 만든다.
+원본 매니페스트는 각 플러그인의 루트 `plugin.json`이다. 나머지는 원본을 고친 뒤 같은 값(이름, 버전, 설명)을 손으로 맞춘다.
 
 ```text
 plugin.json                          # 원본. $schema 필수, 표준 키만, 이름은 [a-z0-9-]
-.claude-plugin/plugin.json           # 생성. Claude Code
-.codex-plugin/plugin.json            # 생성. Codex UI. interface는 이 파일에서 직접 고치면 유지됨
-.cursor-plugin/plugin.json           # 생성. agents/가 있는 플러그인만
-../.claude-plugin/marketplace.json   # 생성. Claude·Cursor·Grok(Codex도 읽음)
-../.agents/plugins/marketplace.json  # 생성. Codex
+.claude-plugin/plugin.json           # 사본. Claude Code
+.codex-plugin/plugin.json            # 사본. Codex UI. interface는 이 파일에만 둔다
+.cursor-plugin/plugin.json           # 사본. agents/가 있는 플러그인만
+../.claude-plugin/marketplace.json   # 목록. Claude·Cursor·Grok(Codex도 읽음)
+../.agents/plugins/marketplace.json  # 목록. Codex
 ```
 
 ```bash
-python3 scripts/sync_manifests.py          # 루트 plugin.json을 고친 뒤 실행
-python3 scripts/sync_manifests.py --check  # 커밋 전 확인. tests/test_manifests.py도 같은 검사를 한다
+grep -h '"version"' plugin.json .*-plugin/plugin.json   # 커밋 전 확인. 플러그인 폴더에서 실행하고 값이 모두 같아야 한다
 ```
 
 - `"skills": "./skills/"`는 루트에 넣지 않는다. 표준 스키마에 없는 키이고, `skills/`는 자동으로 탐색된다.
