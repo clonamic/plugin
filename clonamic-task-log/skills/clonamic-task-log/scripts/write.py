@@ -1,4 +1,4 @@
-"""Idempotent local write: dated entry block, state.json, index.md, Notion ids, portfolio roll-up."""
+"""Idempotent local write: dated entry file, state.json, index.md, Notion ids, portfolio roll-up."""
 
 from __future__ import annotations
 
@@ -6,13 +6,11 @@ import hashlib
 import json
 import re
 from collections import Counter
-from datetime import date
 from pathlib import Path
 
 from common import TaskLogError, project_identity, write_json, write_text_atomic
 
-BEGIN = "<!-- task-log:begin key={key} fingerprint={fp} -->"
-END = "<!-- task-log:end key={key} -->"
+TITLE = re.compile(r"^# (\d{4}-\d{2}-\d{2}(?:~\d{4}-\d{2}-\d{2})?) · (.+)$")
 NOTION_KINDS = {"root", "project", "log", "progress", "portfolio", "day"}
 
 
@@ -31,48 +29,29 @@ def body_hash(text: str) -> str:
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
 
 
-def strip_title(entry: str) -> str:
-    lines = entry.strip().splitlines()
-    if lines and lines[0].startswith("# "):
-        lines = lines[1:]
-    return "\n".join(lines).strip()
+def headline(entry: str) -> str:
+    """The 대표 성과 in the title line."""
+    m = TITLE.match(entry.strip().splitlines()[0]) if entry.strip() else None
+    return m.group(2).strip() if m else ""
 
 
-def merge_block(existing: str, run_date: str, key: str, fingerprint: str, body: str) -> str:
-    block = f"{BEGIN.format(key=key, fp=fingerprint)}\n{body}\n{END.format(key=key)}"
-    pattern = re.compile(
-        re.escape("<!-- task-log:begin key=" + key + " ") + r"fingerprint=\S+ -->.*?" + re.escape(END.format(key=key)),
-        re.DOTALL,
-    )
-    if not existing.strip():
-        return f"# {run_date} 작업 기록\n\n{block}\n"
-    if pattern.search(existing):
-        return pattern.sub(lambda _: block, existing, count=1)
-    return existing.rstrip() + "\n\n" + block + "\n"
-
-
-def headline(body: str) -> str:
-    m = re.search(r"^\s*-\s*핵심 성과\s*(?:—|:)\s*(.+)$", body, re.MULTILINE)
-    return m.group(1).strip() if m else ""
-
-
-def write_entry(repo: Path, logs: Path, state: dict, run: dict, entry: str, today: date,
-                replace_past: bool = False) -> dict:
+def write_entry(repo: Path, logs: Path, state: dict, run: dict, entry: str) -> dict:
+    """Write <date>.md whole (an entry carries no metadata). The entry date must be the prepared run's date."""
     run_date, key, fingerprint = run["date"], run["key"], run["fingerprint"]
-    body = strip_title(entry)
+    m = TITLE.match(entry.strip().splitlines()[0]) if entry.strip() else None
+    if not m or m.group(1) != run_date:
+        raise TaskLogError(
+            f"entry date {m.group(1) if m else '(none)'} does not match the prepared run {run_date}",
+            f"기록 제목을 '# {run_date} · 대표 성과'로 쓰거나, 이 날짜로 prepare 를 다시 실행하세요.",
+        )
+    body = entry.strip() + "\n"
     digest = body_hash(body)
     day = state["days"].setdefault(run_date, {"blocks": {}})
     old = day["blocks"].get(key)
     path = logs / f"{run_date}.md"
     if old and old.get("fingerprint") == fingerprint and old.get("body_sha") == digest and path.is_file():
         return {"status": "unchanged", "file": str(path)}
-    if old and date.fromisoformat(run_date) < today and not replace_past:
-        raise TaskLogError(
-            f"{run_date} already has a '{key}' entry; past dates are never overwritten automatically",
-            "지난 날짜 기록을 새 근거로 다시 정리하려면 사용자가 명시적으로 요청한 경우에만 --replace-past 로 다시 실행하세요.",
-        )
-    existing = path.read_text(encoding="utf-8") if path.is_file() else ""
-    write_text_atomic(path, merge_block(existing, run_date, key, fingerprint, body))
+    write_text_atomic(path, body)
 
     state.setdefault("project", project_identity(repo))
     day["blocks"][key] = {
@@ -84,15 +63,15 @@ def write_entry(repo: Path, logs: Path, state: dict, run: dict, entry: str, toda
         "patches": run.get("patches", []),
         "types": run["types"],
         "notion_title": run["notion_title"],
+        "collected_at": run["generated_at"],
     }
     state["processed"] = sorted(set(state["processed"]) | set(run["considered"]))
     state["processed_patches"] = sorted(set(state.get("processed_patches", [])) | set(run.get("patches", [])))
-    if key == "daily":
-        state["cursors"].update(run["heads"])
+    updated = run["period"]["to"]
     for item in run["progress"]:
         old_feature = state["features"].get(item["feature"], {})
-        prev = old_feature.get("prev") if old_feature.get("updated") == run_date else old_feature.get("pct")
-        state["features"][item["feature"]] = {"pct": item["pct"], "basis": item["basis"], "updated": run_date,
+        prev = old_feature.get("prev") if old_feature.get("updated") == updated else old_feature.get("pct")
+        state["features"][item["feature"]] = {"pct": item["pct"], "basis": item["basis"], "updated": updated,
                                               "prev": prev}
     if run.get("work_unit"):
         state["work_unit"] = {k: run["work_unit"].get(k) for k in ("label", "start", "end", "pct", "commits")}

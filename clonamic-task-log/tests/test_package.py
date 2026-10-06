@@ -57,8 +57,8 @@ class StructureTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in (ROOT / "skills").iterdir() if p.is_dir()), ["clonamic-task-log"])
         self.assertTrue((SKILL / "SKILL.md").is_file())
         scripts = sorted(p.name for p in (SKILL / "scripts").glob("*.py"))
-        self.assertEqual(scripts, ["collect.py", "common.py", "gate.py", "preflight.py", "progress.py", "redact.py",
-                                   "score.py", "tasklog.py", "write.py"])
+        self.assertTrue({"collect.py", "common.py", "gate.py", "preflight.py", "progress.py", "redact.py",
+                         "score.py", "tasklog.py", "write.py"} <= set(scripts), scripts)
         for path in ROOT.rglob("*"):
             self.assertNotIn(path.name, {"__pycache__", ".venv", "node_modules"}, path)
 
@@ -83,12 +83,54 @@ class StructureTests(unittest.TestCase):
         self.assertIn("서브에이전트를 쓸 수 없음", skill)
         self.assertIn("리더가 같은 본문을 따라 차례로 직접 쓰고", skill)
 
+    def test_skill_contract_1_1(self) -> None:
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        for needle in ("/clonamic-task-log [날짜]", "prepare", "--on", "korean", "gate", "write", "notion-set", "save",
+                       "gpt-6-luna", "https://github.com/clonamic/plugin", "WORK NOTES", "작업 메모",
+                       "claude plugin install clonamic-korean@clonamic", "codex plugin add clonamic-korean@clonamic",
+                       "grok plugin enable clonamic-korean", "~/.cursor/plugins/local/clonamic-korean"):
+            self.assertIn(needle, skill)
+        self.assertLess(skill.index("korean"), skill.index("prepare --on"))
+        self.assertNotRegex(skill, r"HTML 주석[을를]? (넣|쓴|남긴)")
+        manifest = json.loads((ROOT / "plugin.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "1.1.0")
+
+    def test_entry_template_headings(self) -> None:
+        text = (SKILL / "references" / "entry.md").read_text(encoding="utf-8")
+        for heading in ("## 핵심 요약", "## 한 일", "## 기술 판단", "## 문제 해결", "## 진행 상황", "## 다음 할 일",
+                        "## 포트폴리오 문장", "- 문제 —", "- 한 일 —", "- 결과 —", "- 그 밖에 —", "(측정)"):
+            self.assertIn(heading, text)
+        self.assertGreaterEqual(text.count("# 20"), 3)
+        for old in ("근거·신뢰도", "목표·맥락", "기여·영향", "한눈에 보기", "증거 지문"):
+            self.assertNotIn(old, text)
+        examples = "\n".join(re.findall(r"````text\n(.*?)````", text, re.DOTALL))
+        self.assertIn("## 핵심 요약", examples)
+        for label in ("[측정]", "[판단]", "[전달]", "[가정]", "[미확인]", "<!--"):
+            self.assertNotIn(label, examples)
+
+    def test_notion_and_portfolio_references(self) -> None:
+        refs = SKILL / "references"
+        notion = (refs / "notion.md").read_text(encoding="utf-8") + (refs / "notion-template.md").read_text(encoding="utf-8")
+        self.assertIn("MMDD~MMDD", notion)
+        self.assertIn("대표 성과", notion)
+        self.assertNotIn("증거 지문", notion)
+        self.assertNotRegex(notion, r"<!--")
+        portfolio = (refs / "portfolio.md").read_text(encoding="utf-8")
+        for part in ("역할 한 줄", "대표 성과", "기능별 기여", "사용 기술", "문제 해결 사례"):
+            self.assertIn(part, portfolio)
+
+    def test_writer_agent_contract(self) -> None:
+        body = (ROOT / "agents" / "clonamic-task-logger.md").read_text(encoding="utf-8")
+        for needle in ("WORK NOTES", "ai-tells.md", "(측정)", "것으로 보입니다", "숫자는 입력", "기록 본문 마크다운만"):
+            self.assertIn(needle, body)
+
     def test_readme_is_korean_and_top_down(self) -> None:
         text = (ROOT / "README.md").read_text(encoding="utf-8")
         headings = [line for line in text.splitlines() if line.startswith("## ")]
         self.assertEqual(headings[0], "## 핵심 요약")
         self.assertGreater(hangul_ratio(text), 0.5)
-        for topic in ("log-part", "개인 페이지 / <프로젝트명> / 작업로그", "clonamic-task-logger", "[측정]", "rebind"):
+        for topic in ("log-part", "개인 페이지 / <프로젝트명> / 작업로그", "clonamic-task-logger", "(측정)", "rebind",
+                      "1.1.0", "[날짜]"):
             self.assertIn(topic, text)
 
     def test_codex_policy_is_explicit_only(self) -> None:

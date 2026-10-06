@@ -283,6 +283,41 @@ def today_in(name: str) -> date:
     return datetime.now(zone(name)).date()
 
 
+WHEN_WORDS = {"오늘": 0, "어제": 1, "그제": 2}
+
+
+def parse_when(text: str, today: date) -> tuple[date, date]:
+    """Work-date argument -> (start, end), both inclusive.
+
+    '', 오늘, 어제, 그제, YYYY-MM-DD, MM-DD (this year), and ranges 'A~B' of the date forms.
+    """
+    text = (text or "").strip()
+    fix = "날짜는 2026-09-29, 09-29, 오늘, 어제, 그제 또는 09-28~10-02 형식으로 적으세요."
+
+    def one(part: str) -> date:
+        part = part.strip()
+        try:
+            if part in WHEN_WORDS:
+                return today - timedelta(days=WHEN_WORDS[part])
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", part):
+                return date.fromisoformat(part)
+            if re.fullmatch(r"\d{1,2}-\d{1,2}", part):
+                month, day = part.split("-")
+                return date(today.year, int(month), int(day))
+        except ValueError:
+            pass
+        raise TaskLogError(f"cannot parse date {part!r}", fix)
+
+    if not text:
+        return today, today
+    first, sep, last = text.partition("~")
+    start = one(first)
+    end = one(last) if sep else start
+    if start > end:
+        raise TaskLogError(f"range start is after its end: {text!r}", fix)
+    return start, end
+
+
 def day_start(day: date, name: str) -> str:
     """ISO timestamp of local midnight, for git --since/--until."""
     return datetime(day.year, day.month, day.day, tzinfo=zone(name)).isoformat()

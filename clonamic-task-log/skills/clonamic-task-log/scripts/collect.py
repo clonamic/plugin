@@ -96,34 +96,16 @@ def author_args(profile: Profile) -> list[str]:
     return ["--fixed-strings", *[f"--author={who}" for who in profile.identities]]
 
 
-def revs_for_run(repo: Path, profile: Profile, state: dict, since: date | None, until: date | None,
-                 today: date) -> tuple[list[str], dict[str, str]]:
-    """Return candidate shas (newest first) and the branch heads to store as new cursors."""
-    authors = author_args(profile)
-    heads = dict(line.split(" ", 1)[::-1] for line in git(
-        repo, "for-each-ref", "refs/heads", "--format=%(objectname) %(refname:short)").splitlines() if line.strip())
-    if since or until:
-        args = ["rev-list", "--branches", *authors]
-        if since:
-            args.append(f"--since={day_start(since, profile.timezone)}")
-        if until:
-            args.append(f"--until={day_start(until + timedelta(days=1), profile.timezone)}")
-        return git(repo, *args).split(), heads
-    processed = set(state.get("processed", []))
-    cursors = state.get("cursors", {})
-    first_since = day_start(today - timedelta(days=profile.first_window_days), profile.timezone)
-    fallback = state.get("last_run") or first_since
-    seen: list[str] = []
-    for branch, head in heads.items():
-        cursor = cursors.get(branch)
-        if cursor and git_ok(repo, "merge-base", "--is-ancestor", cursor, head):
-            out = git(repo, "rev-list", *authors, f"{cursor}..{head}")
-        else:
-            out = git(repo, "rev-list", *authors, f"--since={fallback}", head)
-        for sha in out.split():
-            if sha not in processed and sha not in seen:
-                seen.append(sha)
-    return seen, heads
+def revs_for_window(repo: Path, profile: Profile, start: date) -> list[str]:
+    """Candidate shas by author, newest first. The committer date is never earlier than the author date,
+    so one day of slack before `start` is enough; callers then filter by author date (`in_window`)."""
+    since = day_start(start - timedelta(days=1), profile.timezone)
+    return git(repo, "rev-list", "--branches", *author_args(profile), f"--since={since}").split()
+
+
+def in_window(commit: dict, start: date, end: date) -> bool:
+    """Author date, in the profile time zone (details() already converted it)."""
+    return start <= date.fromisoformat(commit["date"][:10]) <= end
 
 
 def parse_stats(block: str) -> list[dict]:

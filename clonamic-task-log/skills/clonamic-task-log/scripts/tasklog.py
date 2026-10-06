@@ -3,9 +3,11 @@
 
   preflight        prerequisites (+ first-run defaults)          exit 0 ok, 1 a check failed
   profile          parse and validate profile.md
-  prepare          collect -> score -> progress -> redact; prints the abstracted run, saves .run.json
-  gate             check an entry file (leaks, contract, labels)   exit 2 blocked
-  write            gate, then merge the entry into <date>.md, update state.json and index.md
+  prepare --on D   collect the commits AUTHORED on date/range D (default today) -> score -> progress -> redact;
+                   D = YYYY-MM-DD | MM-DD | 오늘 | 어제 | 그제 | A~B. Prints the abstracted run, saves .run.json
+  gate             check an entry file (leaks, entry contract, banned wording, numbers)   exit 2 blocked
+  write            gate, then write <date>.md (replaces the same date), update state.json and index.md
+  korean           run clonamic-korean's check_revision.py (draft mode) on an entry   exit 0/1/2, 4 not installed
   notion-set       record a Notion page id/url in state.json
   status           stored cursors, days, Notion ids (no commit data)
   portfolio        roll-up data for the portfolio summary
@@ -33,13 +35,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import collect  # noqa: E402
 import gate  # noqa: E402
+import korean  # noqa: E402
 import preflight  # noqa: E402
 import progress  # noqa: E402
 import redact  # noqa: E402
 import score  # noqa: E402
 import write  # noqa: E402
 from common import (RUN_FILE, SENSITIVE_PATHSPEC, TaskLogError, git, git_ok, load_profile, open_project,  # noqa: E402
-                    project_identity, read_json, repo_name, today_in, write_json, write_text_atomic, zone)
+                    parse_when, project_identity, read_json, repo_name, today_in, write_json, write_text_atomic, zone)
 
 
 def emit(obj: dict, code: int = 0) -> int:
@@ -79,30 +82,32 @@ def cmd_prepare(args) -> int:
     repo, logs, state = open_project(Path(args.repo), args.agent_dir)
     profile = load_profile(logs)
     today = today_in(profile.timezone)
-    run_date = args.date or today.isoformat()
-    since = date.fromisoformat(args.since) if args.since else None
-    until = date.fromisoformat(args.until) if args.until else None
-    key = "daily" if not (since or until) else f"range:{since or ''}..{until or ''}"
-    shas, heads = collect.revs_for_run(repo, profile, state, since, until, today)
+    if args.since or args.until:
+        since = date.fromisoformat(args.since or args.until)
+        start, end = since, date.fromisoformat(args.until) if args.until else today
+    else:
+        start, end = parse_when(args.on, today)
+    run_date = start.isoformat() if start == end else f"{start}~{end}"
+    key = "daily" if start == end else "range"
     previous = state["days"].get(run_date, {}).get("blocks", {}).get(key, {})
-    shas += [s for s in previous.get("considered", []) if s not in shas]  # same-day rerun merges
-    found = collect.details(repo, shas, profile)
+    shas = collect.revs_for_window(repo, profile, start)
+    shas += [s for s in previous.get("considered", []) if s not in shas]  # rerun of the same date merges
+    found = [c for c in collect.details(repo, shas, profile)
+             if c["sha"] in previous.get("considered", []) or collect.in_window(c, start, end)]
     collect.attach_patch_ids(repo, found)
     pids = [c.get("patch_id") for c in found]
     on_head = {c["sha"] for c in found if c.get("patch_id") and pids.count(c["patch_id"]) > 1
                and git_ok(repo, "merge-base", "--is-ancestor", c["sha"], "HEAD")}
-    seen_patches = set(state.get("processed_patches", [])) - set(previous.get("patches", []))
-    duplicates = score.duplicate_shas(found, seen_patches, on_head)
+    duplicates = score.duplicate_shas(found, set(), on_head)
     primary, status = collect.limit([c for c in found if c["sha"] not in duplicates], profile)
     commits = sorted(primary + [c for c in found if c["sha"] in duplicates], key=lambda c: c["date"])
     scored = score.run(commits, profile, repo, duplicates)
     with_repo_terms(repo, profile, [f["path"] for c in commits for f in c["files"]])
-    prog = progress.run(repo, profile, scored["included"], state, today)
-    dates = sorted(c["date"][:10] for c in commits)
-    period = {"from": str(since or (dates[0] if dates else run_date)), "to": str(until or (dates[-1] if dates else run_date))}
+    prog = progress.run(repo, profile, scored["included"], state, end)
+    period = {"from": start.isoformat(), "to": end.isoformat()}
     project = repo_name(repo)
     meta = {"date": run_date, "key": key, "period": period, "project": project}
-    abstract = redact.abstract_run(scored, prog, profile, meta)
+    abstract = redact.abstract_run(scored, prog, profile, meta, repo)
     fingerprint = write.evidence_fingerprint(run_date, key, commits, scored["excluded"])
     collected_at = datetime.now(zone(profile.timezone)).isoformat(timespec="seconds")
     abstract["evidence"] = {
@@ -117,15 +122,17 @@ def cmd_prepare(args) -> int:
         "file_entries": sum(len(c["files"]) for c in commits),
         "contract": gate.CONTRACT,
     }
-    abstract["notion_title"] = run_date if key == "daily" else f"{period['from']}~{period['to']}"
+    abstract["entry_file"] = f"{run_date}.md"
+    abstract["notion_title"] = run_date if start == end else f"{start:%m%d}~{end:%m%d}"
     abstract["empty"] = not scored["included"]
     abstract["previous_block"] = bool(previous)
     run = {
         "date": run_date, "key": key, "period": period, "project": project, "fingerprint": fingerprint,
-        "generated_at": collected_at, "considered": [c["sha"] for c in commits], "heads": heads,
+        "generated_at": collected_at, "considered": [c["sha"] for c in commits],
         "patches": sorted({c["patch_id"] for c in commits if c.get("patch_id")}),
         "types": abstract["counts"]["by_type"],
-        "progress": [{"feature": p["feature"], "pct": p["pct"], "basis": p["basis"]} for p in prog["features"]],
+        "progress": [{"feature": p["feature"], "pct": p["pct"], "basis": p["basis"],
+                      "prev": p["pct"] - p["delta"] if p["delta"] is not None else None} for p in prog["features"]],
         "work_unit": prog["work_unit"], "metrics": abstract["metrics"], "repo_terms": profile.repo_terms,
         "notion_title": abstract["notion_title"], "identity": project_identity(repo),
     }
@@ -149,10 +156,10 @@ def cmd_gate(args) -> int:
     if args.kind == "entry":
         run = load_run(repo, logs)
         profile.repo_terms = run["repo_terms"]
-        result = gate.check(text, profile, run["fingerprint"], "entry")
+        result = gate.check(text, profile, run, "entry")
     else:
         with_repo_terms(repo, profile, [])
-        result = gate.check(text, profile, "", args.kind)
+        result = gate.check(text, profile, None, args.kind)
     return emit(result, 0 if result["ok"] else 2)
 
 
@@ -162,11 +169,16 @@ def cmd_write(args) -> int:
     run = load_run(repo, logs)
     profile.repo_terms = run["repo_terms"]
     text = Path(args.entry).read_text(encoding="utf-8")
-    result = gate.check(text, profile, run["fingerprint"], "entry")
+    result = gate.check(text, profile, run, "entry")
     if not result["ok"]:
         return emit({"ok": False, "status": "blocked"} | result, 2)
-    done = write.write_entry(repo, logs, state, run, text, today_in(profile.timezone), args.replace_past)
+    done = write.write_entry(repo, logs, state, run, text)
     return emit({"ok": True} | done)
+
+
+def cmd_korean(args) -> int:
+    result, code = korean.check(Path(args.entry) if args.entry else None)
+    return emit(result, code)
 
 
 def cmd_notion_set(args) -> int:
@@ -198,7 +210,7 @@ def cmd_write_portfolio(args) -> int:
     repo, logs, _ = open_project(Path(args.repo), args.agent_dir)
     profile = with_repo_terms(repo, load_profile(logs), [])
     text = Path(args.entry).read_text(encoding="utf-8")
-    result = gate.check(text, profile, "", "portfolio")
+    result = gate.check(text, profile, None, "portfolio")
     if not result["ok"]:
         return emit({"ok": False, "status": "blocked"} | result, 2)
     write_text_atomic(logs / "portfolio.md", text.strip() + "\n")
@@ -256,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("prepare")
     p.add_argument("--since")
     p.add_argument("--until")
-    p.add_argument("--date", help="entry date (default: today in the profile time zone)")
+    p.add_argument("--on", default="", help="work date: YYYY-MM-DD, MM-DD, 오늘/어제/그제, or a range A~B (default: today)")
     p.set_defaults(func=cmd_prepare)
     p = sub.add_parser("gate")
     p.add_argument("--entry", required=True)
@@ -264,8 +276,11 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_gate)
     p = sub.add_parser("write")
     p.add_argument("--entry", required=True)
-    p.add_argument("--replace-past", action="store_true")
+    p.add_argument("--replace-past", action="store_true", help="ignored; kept so older commands still run")
     p.set_defaults(func=cmd_write)
+    p = sub.add_parser("korean")
+    p.add_argument("--entry", help="draft to check; without it, only locate clonamic-korean")
+    p.set_defaults(func=cmd_korean)
     p = sub.add_parser("notion-set")
     p.add_argument("--kind", required=True)
     p.add_argument("--id", required=True)

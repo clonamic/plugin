@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from common import Profile, is_code, is_doc, is_test
 
@@ -181,11 +181,14 @@ def kind_of(path: str) -> str:
     return "설정·자원"
 
 
-def abstract_commit(commit: dict, profile: Profile, rank: int) -> dict:
+def abstract_commit(commit: dict, profile: Profile, rank: int, repo: Path | None = None) -> dict:
+    import digest  # local import: digest uses scrub() from this module
+
     areas = Counter()
     for f in commit["files"]:
         areas[area_label(f["path"], profile)] += f["added"] + f["deleted"] + 1
     files = Counter(f["status"] for f in commit["files"])
+    new_module = commit["score_parts"]["new"] == 10
     return {
         "rank": rank,
         "score": commit["score"],
@@ -201,8 +204,12 @@ def abstract_commit(commit: dict, profile: Profile, rank: int) -> dict:
         "files": {"added": files.get("A", 0), "modified": files.get("M", 0), "deleted": files.get("D", 0)},
         "lines": {"added": commit["added"], "deleted": commit["deleted"]},
         "tests_added": commit["tests_added"],
-        "new_module": commit["score_parts"]["new"] == 10,
+        "new_module": new_module,
         "breaking": commit["breaking"],
+        "digest": {
+            "kinds": digest.kinds_of(commit["files"], new_module, commit["tests_added"]),
+            "hints": digest.hints_of(repo, commit, profile) if repo else [],
+        },
     }
 
 
@@ -226,6 +233,7 @@ def work_items(detailed: list[dict]) -> list[dict]:
         title = item["feature"] or ("여러 영역에 걸친 작업" if item["cross_cutting"] or not item["areas"] else item["areas"][0])
         group = groups.setdefault(title, {
             "title": title, "score": 0, "ranks": [], "types": [],
+            "digest": {"feature": item["feature"] or title, "kinds": [], "hints": []},
             "totals": {"commits": 0, "files_added": 0, "files_modified": 0, "files_deleted": 0,
                        "lines_added": 0, "lines_deleted": 0, "commits_with_tests": 0},
         })
@@ -241,13 +249,16 @@ def work_items(detailed: list[dict]) -> list[dict]:
         t["commits_with_tests"] += 1 if item["tests_added"] else 0
         if item["type_ko"] not in group["types"]:
             group["types"].append(item["type_ko"])
+        d = group["digest"]
+        d["kinds"] += [k for k in item.get("digest", {}).get("kinds", []) if k not in d["kinds"]]
+        d["hints"] += [h for h in item.get("digest", {}).get("hints", []) if h not in d["hints"]]
     return sorted(groups.values(), key=lambda g: (-g["score"], g["ranks"][0]))
 
 
-def abstract_run(scored: dict, progress: dict, profile: Profile, meta: dict) -> dict:
+def abstract_run(scored: dict, progress: dict, profile: Profile, meta: dict, repo: Path | None = None) -> dict:
     included = scored["included"]
     n = scored["detailed_count"]
-    detailed = [abstract_commit(c, profile, i + 1) for i, c in enumerate(included[:n])]
+    detailed = [abstract_commit(c, profile, i + 1, repo) for i, c in enumerate(included[:n])]
     rest = Counter(TYPE_KO.get(c["type"], "변경") for c in included[n:])
     new_things = Counter()
     for c in included:
