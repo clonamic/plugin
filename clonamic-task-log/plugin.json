@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clonamic-task-log",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Turn your own git work in the current project into a dated, portfolio-ready Korean work log with one explicit /clonamic-task-log command: local log files plus Notion pages, with importance scoring, estimated feature progress, and a redaction gate that keeps file names and secrets out.",
   "license": "MIT",
   "author": {
