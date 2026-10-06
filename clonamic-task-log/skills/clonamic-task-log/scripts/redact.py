@@ -224,9 +224,21 @@ def work_items(detailed: list[dict]) -> list[dict]:
     groups: dict[str, dict] = {}
     for item in detailed:
         title = item["feature"] or ("여러 영역에 걸친 작업" if item["cross_cutting"] or not item["areas"] else item["areas"][0])
-        group = groups.setdefault(title, {"title": title, "score": 0, "ranks": [], "types": []})
+        group = groups.setdefault(title, {
+            "title": title, "score": 0, "ranks": [], "types": [],
+            "totals": {"commits": 0, "files_added": 0, "files_modified": 0, "files_deleted": 0,
+                       "lines_added": 0, "lines_deleted": 0, "commits_with_tests": 0},
+        })
         group["score"] = max(group["score"], item["score"])
         group["ranks"].append(item["rank"])
+        t = group["totals"]  # precomputed so the writer never adds numbers itself
+        t["commits"] += 1
+        t["files_added"] += item["files"]["added"]
+        t["files_modified"] += item["files"]["modified"]
+        t["files_deleted"] += item["files"]["deleted"]
+        t["lines_added"] += item["lines"]["added"]
+        t["lines_deleted"] += item["lines"]["deleted"]
+        t["commits_with_tests"] += 1 if item["tests_added"] else 0
         if item["type_ko"] not in group["types"]:
             group["types"].append(item["type_ko"])
     return sorted(groups.values(), key=lambda g: (-g["score"], g["ranks"][0]))

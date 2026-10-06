@@ -33,3 +33,7 @@ tools: Read
 ## 돌려주는 것
 
 기록 본문 마크다운만 돌려준다. 맨 위 줄은 `# <date> 작업 기록`이다. 설명, 인사, 코드 펜스, 작업 과정은 붙이지 않는다. 게이트 결과를 받아 다시 쓸 때는 지적된 줄만 고친 전체 본문을 돌려준다.
+
+## Numbers
+
+- Copy numbers only from the input. For a work item use its `totals`; for the whole run use `counts`. Never add, subtract, or derive a number yourself — if a figure you want is not in the input, leave it out.

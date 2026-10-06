@@ -38,9 +38,9 @@ Hooks do not cover these, so filter the text yourself before it leaves the machi
 - **Annotated tag**: `git tag -a vX.Y.Z -F tagmsg.txt` after filtering; the tagger is the same verified identity.
 - **Release**: `gh release create vX.Y.Z --notes-file notes.md` after filtering. If you used `--generate-notes`, review the generated list and remove bot/AI entries (for example `by @Copilot in #12`) before publishing.
 
-## Repository hook (recommended once per repo)
+## Repository hook (opt-in only)
 
-`/clonamic-git-setup` installs a project-local `commit-msg` hook that runs the same filter on every commit made in the repo, by any host or by hand. If `install_hook.py --status` (see that skill) shows `not-installed`, mention it once in your report; install only when the user agrees.
+A `commit-msg` hook can run the same filter on every commit, but it lives in `.git/hooks` — outside the agent folder — so it is installed only when the user explicitly asks for it in that repository (`/clonamic-git-setup`). Do not offer it unprompted; the default protection is this skill plus the host switches and the pre-push scan.
 
 ## Report examples (Korean, to the user)
 

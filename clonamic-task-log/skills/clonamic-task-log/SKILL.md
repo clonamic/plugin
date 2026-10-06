@@ -62,7 +62,7 @@ user-invocable: true
    | 호스트 | 작성자 |
    |---|---|
    | Claude Code | 플러그인 에이전트 `clonamic-task-log:clonamic-task-logger`(Sonnet) |
-   | Codex | 일반 서브에이전트에 `agents/clonamic-task-logger.md` 본문을 지시문으로 주고 모델 `luna` |
+   | Codex | 일반 서브에이전트에 `agents/clonamic-task-logger.md` 본문을 지시문으로 주고 모델은 쓸 수 있는 가장 최신 `*-luna`(현재 `gpt-6-luna`) |
    | Cursor, Grok | 플러그인 에이전트, 또는 일반 서브에이전트에 같은 본문. Sonnet 급 모델을 쓸 수 있으면 그 모델 |
    | 서브에이전트를 쓸 수 없음 | 리더가 같은 본문을 따라 차례로 직접 쓰고, 보고서에 "작성자 서브에이전트 없이 리더가 작성" 한 줄을 남긴다 |
 

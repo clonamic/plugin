@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "clonamic-git",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Git commits, PRs, tags, and release notes under the user's own identity with no AI attribution trailers, footers, or bot authors.",
   "license": "MIT",
   "author": {

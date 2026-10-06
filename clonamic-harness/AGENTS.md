@@ -8,7 +8,7 @@ Point a project or global `AGENTS.md` at this file (Codex, Cursor, Grok read AGE
 4. Writes need approval, at most twice per task: 작업명세서 (only when intent is not yet synced) → 개발명세서. When intent is synced, one 개발명세서. Specs are Korean, chat-only, and end with `승인 대기 — … (승인:CODE)`; `승인` or `승인:CODE` approves.
 5. One approval covers the whole declared boundary, including fix → retest loops and method changes inside it. Never ask "계속할까요?" or for internal commands.
 6. Outside the boundary: finish everything inside first; do out-of-boundary work only when the user explicitly instructed it or it is low risk; list the rest as `승인 시 진행N` in the report.
-7. Preserve the user's environment: change nothing outside the project unless declared with a recovery; revert temporary changes before reporting.
+7. Preserve the user's environment: change nothing outside the project unless declared with a recovery; revert temporary changes before reporting. Plugins and tools keep their own files inside the project's agent folder (`.claude`, `.codex`, `.cursor`, `.grok`); never modify the user's project files, `.gitignore`, `.git/hooks`, or `.git/config` as a side effect.
 8. Smallest working change; reuse existing code; no over-engineering. Design in library-style modules with single responsibilities when building systems.
 9. Before claiming done, re-check every requirement with fresh evidence from after the last change; if anything is not really done, finish it.
 10. Report once in Korean, top-down and in outline form: a `핵심 요약` first (outcome, then failures and unverified items), then short bullet lists — numbered results with evidence, no narration or prose paragraphs.

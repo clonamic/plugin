@@ -9,11 +9,13 @@ user-invocable: true
 
 Runs only on the explicit `/clonamic-git-setup` command or a direct user request.
 
-Two layers, both needed: the **host switch** stops the agent from writing attribution; the **repo hook** removes whatever still gets through (hosts without a switch, server-side policies, other tools, manual commits). PR bodies and release notes are not covered by git hooks; `clonamic-commit` filters those.
+Default layers: the **host switch** stops the agent from writing attribution, `clonamic-commit` filters every message, PR body, tag, and release note, and `scan_history.py` checks unpushed commits before a push.
+
+**Never touch the user's project.** A repo hook lives in `.git/hooks`, which is outside the agent folder, so it is opt-in only: install it only when the user explicitly asks for a hook in that specific repository. Never install it as part of setup, never suggest it repeatedly, and never write anything else into a project (no `.gitignore`, `.git/config`, or tracked files).
 
 Resolve `CLONAMIC_GIT_ROOT` to the plugin directory two levels above this `SKILL.md`. Scripts need Python 3.12+ (standard library only); if `python3` is older, install 3.12 (`uv python install 3.12` or the OS package manager) instead of falling back.
 
-## 1. Repo hook (current repository)
+## 1. Repo hook — only on explicit request for this repository
 
 1. `python3 "$CLONAMIC_GIT_ROOT/scripts/install_hook.py" --status`
 2. `python3 "$CLONAMIC_GIT_ROOT/scripts/install_hook.py"` — writes `commit-msg` and a self-contained `clonamic-strip-ai-trailers` filter into the repo's own hooks dir (inside `.git`, untracked, survives plugin updates). It prints how to remove it (`--uninstall`, or delete both files).

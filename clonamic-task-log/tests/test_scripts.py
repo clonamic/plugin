@@ -466,3 +466,18 @@ class SaveCommandTests(unittest.TestCase):
         code, out = self._save(repo.path, "profile.md", "   \n")
         self.assertEqual(code, 3)
         self.assertFalse((repo.path / ".claude/log-part/profile.md").exists())
+
+
+class WorkItemTotalsTests(unittest.TestCase):
+    def test_totals_are_precomputed_per_work_item(self) -> None:
+        sys.path.insert(0, str(TASKLOG.parent))
+        import redact
+        detailed = [
+            {"rank": 1, "score": 70, "type_ko": "기능", "feature": "결제", "cross_cutting": False, "areas": ["결제"],
+             "files": {"added": 2, "modified": 1, "deleted": 0}, "lines": {"added": 40, "deleted": 5}, "tests_added": True},
+            {"rank": 2, "score": 50, "type_ko": "수정", "feature": "결제", "cross_cutting": False, "areas": ["결제"],
+             "files": {"added": 0, "modified": 3, "deleted": 1}, "lines": {"added": 10, "deleted": 20}, "tests_added": False},
+        ]
+        [item] = redact.work_items(detailed)
+        self.assertEqual(item["totals"], {"commits": 2, "files_added": 2, "files_modified": 4, "files_deleted": 1,
+                                          "lines_added": 50, "lines_deleted": 25, "commits_with_tests": 1})

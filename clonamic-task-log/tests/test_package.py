@@ -79,7 +79,7 @@ class StructureTests(unittest.TestCase):
         self.assertIn("파일을 만들거나 고치지 않는다", body)
         skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("clonamic-task-log:clonamic-task-logger", skill)
-        self.assertIn("`luna`", skill)
+        self.assertIn("gpt-6-luna", skill)
         self.assertIn("서브에이전트를 쓸 수 없음", skill)
         self.assertIn("리더가 같은 본문을 따라 차례로 직접 쓰고", skill)
 
