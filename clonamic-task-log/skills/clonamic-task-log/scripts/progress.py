@@ -95,10 +95,22 @@ def unit_window(repo: Path, unit: WorkUnit, today: date) -> dict | None:
     return {"label": label, "start": started, "end": "", "time_pct": None}
 
 
+NO_MILESTONES = "마일스톤 미설정"
+
+
+def paths_exist(repo: Path, paths: list[str]) -> bool:
+    """A feature whose paths are all gone from the repo no longer exists (features without paths stay)."""
+    if not paths:
+        return True
+    return any((repo / p).exists() for p in paths) or bool(git(repo, "ls-files", "--", *paths, check=False).strip())
+
+
 def run(repo: Path, profile: Profile, included: list[dict], state: dict, today: date) -> dict:
     features = []
     previous = state.get("features", {})
     for feature in profile.features:
+        if not paths_exist(repo, feature.paths):
+            continue
         signals = feature_signals(repo, feature, profile)
         pct, basis = estimate(signals)
         last = previous.get(feature.label, {})
@@ -106,6 +118,8 @@ def run(repo: Path, profile: Profile, included: list[dict], state: dict, today: 
         features.append({
             "feature": feature.label,
             "pct": pct,
+            "milestones": signals["milestones"],
+            "shown": f"약 {pct}%" if signals["milestones"][1] else NO_MILESTONES,  # % only where milestones exist
             "basis": basis,
             "delta": pct - base if base is not None else None,
             "touched_now": any(feature.label in c.get("features", []) for c in included),

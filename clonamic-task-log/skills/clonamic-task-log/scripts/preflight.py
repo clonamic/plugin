@@ -19,7 +19,12 @@ RELEASE_RE = re.compile(r"^(v?)\d+\.\d+(?:\.\d+)?$")
 
 
 def check(name: str, ok: bool, detail: str, fix: str = "") -> dict:
-    return {"name": name, "ok": ok, "detail": detail, "fix": "" if ok else fix}
+    return {"name": name, "ok": ok, "status": "ok" if ok else "fail", "detail": detail, "fix": "" if ok else fix}
+
+
+def unknown(name: str, detail: str) -> dict:
+    """A check the script cannot make itself: never reported as ok, never fails preflight."""
+    return {"name": name, "ok": None, "status": "unknown", "detail": detail, "fix": ""}
 
 
 HOST_NAMES = {".claude": "Claude Code", ".codex": "Codex", ".cursor": "Cursor", ".grok": "Grok"}
@@ -89,7 +94,7 @@ def run_checks(start: Path, agent_dir: str) -> tuple[list[dict], Path | None]:
     problem = probe_writable(logs)
     checks.append(check("log-part-writable", not problem, "writable" if not problem else problem,
                         write_fix(agent_dir, repo, logs)))
-    checks.append(check("notion-mcp", True, "agent must verify its own tool list"))
+    checks.append(unknown("notion-mcp", "리더가 자기 도구 목록에서 확인해야 함"))
     return checks, repo
 
 
@@ -137,14 +142,14 @@ def defaults(repo: Path) -> dict:
         "identities": emails,
         "work_unit_candidates": detect_work_unit(repo),
         "feature_candidates": detect_features(repo, emails) if emails else [],
-        "notion_path": f"개인 페이지 / {repo_name(repo)} / 작업로그",
+        "notion_path": f"개인페이지 / project / {repo_name(repo)} / 작업로그",
         "first_window_days": 7,
     }
 
 
 def run(start: Path, agent_dir: str) -> dict:
     checks, repo = run_checks(start, agent_dir)
-    ok = all(c["ok"] for c in checks)
+    ok = all(c["ok"] is not False for c in checks)
     result = {"ok": ok, "checks": checks}
     if repo is not None:
         logs = log_dir(repo, agent_dir)
@@ -154,7 +159,7 @@ def run(start: Path, agent_dir: str) -> dict:
         if result["first_run"] and ok:
             result["defaults"] = defaults(repo)
     if not ok:
-        result["fixes"] = [c["fix"] for c in checks if not c["ok"]]
+        result["fixes"] = [c["fix"] for c in checks if c["ok"] is False]
     return result
 
 

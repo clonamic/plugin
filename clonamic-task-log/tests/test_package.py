@@ -93,14 +93,21 @@ class StructureTests(unittest.TestCase):
         self.assertLess(skill.index("korean"), skill.index("prepare --on"))
         self.assertNotRegex(skill, r"HTML 주석[을를]? (넣|쓴|남긴)")
         manifest = json.loads((ROOT / "plugin.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.1.3")
+        self.assertEqual(manifest["version"], "1.2.0")
+        for sub in (".claude-plugin", ".codex-plugin", ".cursor-plugin"):
+            path = ROOT / sub / "plugin.json"
+            if path.is_file():
+                self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["version"], "1.2.0", sub)
 
     def test_entry_template_headings(self) -> None:
         text = (SKILL / "references" / "entry.md").read_text(encoding="utf-8")
-        for heading in ("## 핵심 요약", "## 한 일", "## 기술 판단", "## 문제 해결", "## 진행 상황", "## 다음 할 일",
-                        "## 포트폴리오 문장", "- 문제 —", "- 한 일 —", "- 결과 —", "- 그 밖에 —", "(측정)"):
+        for heading in ("## 핵심 요약", "## 한 일", "## 기술 판단", "## 문제 해결", "## 오늘 변화", "## 다음 할 일",
+                        "- 배경 —", "- 접근 —", "- 결과 —", "- 그 밖에 —", "(측정)", "내부 용어", "- 영향:", "- 검증:"):
             self.assertIn(heading, text)
         self.assertGreaterEqual(text.count("# 20"), 3)
+        examples_only = "\n".join(re.findall(r"````text\n(.*?)````", text, re.DOTALL))
+        self.assertNotIn("\n## 포트폴리오 문장", examples_only)
+        self.assertNotIn("\n## 진행 상황", examples_only)
         for old in ("근거·신뢰도", "목표·맥락", "기여·영향", "한눈에 보기", "증거 지문"):
             self.assertNotIn(old, text)
         examples = "\n".join(re.findall(r"````text\n(.*?)````", text, re.DOTALL))
@@ -129,9 +136,47 @@ class StructureTests(unittest.TestCase):
         headings = [line for line in text.splitlines() if line.startswith("## ")]
         self.assertEqual(headings[0], "## 핵심 요약")
         self.assertGreater(hangul_ratio(text), 0.5)
-        for topic in ("log-part", "개인 페이지 / <프로젝트명> / 작업로그", "clonamic-task-logger", "(측정)", "rebind",
-                      "1.1.0", "[날짜]"):
+        for topic in ("log-part", "개인페이지 / project / <프로젝트명> / 작업로그", "clonamic-task-logger", "(측정)", "rebind",
+                      "1.1.0", "1.2.0", "[날짜]", "다시 정리", "마일스톤 미설정"):
             self.assertIn(topic, text)
+
+    def test_no_portfolio_sentence_section_anywhere_and_new_default_path(self) -> None:
+        for doc in [ROOT / "README.md", ROOT / "agents" / "clonamic-task-logger.md", SKILL / "SKILL.md",
+                    *(SKILL / "references").glob("*.md")]:
+            text = doc.read_text(encoding="utf-8")
+            self.assertNotRegex(text, r"^## 포트폴리오 문장", doc.name)
+            if doc.name != "README.md":  # the README changelog quotes the old default on purpose
+                self.assertNotIn("개인 페이지 /", text, doc.name)
+        self.assertIn("개인페이지 / project /", (SKILL / "references" / "setup.md").read_text(encoding="utf-8"))
+        self.assertIn("개인페이지 / project /", (SKILL / "references" / "notion.md").read_text(encoding="utf-8"))
+
+    def test_entry_examples_pass_the_gate(self) -> None:
+        import sys
+        sys.path.insert(0, str(SKILL / "scripts"))
+        sys.dont_write_bytecode = True
+        import gate
+        from common import parse_profile
+
+        text = (SKILL / "references" / "entry.md").read_text(encoding="utf-8")
+        examples = re.findall(r"## 예시 \d[^\n]*\n\n````text\n(.*?)````", text, re.DOTALL)
+        self.assertEqual(len(examples), 2)
+        profile = parse_profile("- 신원: me@example.com\n- 내부 용어: 게이트, 작업 메모, 지문\n")
+        run = {"metrics": [], "touched_features": ["기록 저장", "사진 업로드", "로그인"],
+               "progress": [{"feature": "기록 저장", "pct": 70, "prev": 60, "milestones": [2, 3]},
+                            {"feature": "사진 업로드", "pct": 35, "prev": 30, "milestones": [0, 0]}]}
+        for example in examples:
+            result = gate.check(example, profile, run)
+            self.assertEqual(result["blocked"], [], example[:40])
+        self.assertEqual(sum(1 for ln in examples[0].splitlines() if ln.strip()) <= 40, True)
+
+    def test_skill_documents_notes_reuse_and_grouping(self) -> None:
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        for needle in ("notes --check --save", "saved_notes", "다시 정리", "최대 3개", "검증: ", "`unknown`", "영향:",
+                       "내부 용어"):
+            self.assertIn(needle, skill)
+        agent = (ROOT / "agents" / "clonamic-task-logger.md").read_text(encoding="utf-8")
+        for needle in ("- 배경 —", "- 접근 —", "- 결과 —", "검증", "없음", "내부 매개변수", "게이트가 대괄호 꼬리표를 막게 했습니다"):
+            self.assertIn(needle, agent)
 
     def test_codex_policy_is_explicit_only(self) -> None:
         text = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")

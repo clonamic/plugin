@@ -183,6 +183,7 @@ class Profile:
     max_files: int = 2000
     public_terms: list[str] = field(default_factory=list)
     private_terms: list[str] = field(default_factory=list)
+    internal_terms: list[str] = field(default_factory=list)
     features: list[Feature] = field(default_factory=list)
     repo_terms: list[str] = field(default_factory=list)  # filled at run time, never parsed
 
@@ -261,6 +262,7 @@ def parse_profile(text: str) -> Profile:
             setattr(profile, attr, int(m.group()))
     profile.public_terms = split_terms(fields.get("공개 용어", ""))
     profile.private_terms = split_terms(fields.get("비공개 용어", ""))
+    profile.internal_terms = split_terms(fields.get("내부 용어", ""))
     if not profile.identities:
         raise TaskLogError("profile has no identities", "profile.md의 '신원'에 커밋 이메일이나 이름을 하나 이상 적으세요.")
     zone(profile.timezone)

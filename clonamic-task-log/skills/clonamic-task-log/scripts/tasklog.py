@@ -6,7 +6,7 @@
   prepare --on D   collect the commits AUTHORED on date/range D (default today) -> score -> progress -> redact;
                    D = YYYY-MM-DD | MM-DD | 오늘 | 어제 | 그제 | A~B. Prints the abstracted run, saves .run.json
   gate             check an entry file (--entry FILE or - for stdin) (leaks, entry contract, banned wording, numbers)   exit 2 blocked
-  notes --check    validate the leader's WORK NOTES (--entry FILE or -)                           exit 2 blocked
+  notes --check    validate the leader's WORK NOTES (--entry FILE or -); --save stores them per date   exit 2 blocked
   write            gate, then write <date>.md (replaces the same date), update state.json and index.md
   korean           run clonamic-korean's check_revision.py (draft mode) on an entry   exit 0/1/2, 4 not installed
   forget --date D  delete one day's entry, state and index line; prints the Notion page to trash by hand
@@ -94,6 +94,8 @@ def cmd_prepare(args) -> int:
     repo, logs, state = open_project(Path(args.repo), args.agent_dir)
     profile = load_profile(logs)
     today = today_in(profile.timezone)
+    redo = "다시 정리" in args.on
+    args.on = args.on.replace("다시 정리", "").strip()
     if args.since or args.until:
         since = date.fromisoformat(args.since or args.until)
         start, end = since, date.fromisoformat(args.until) if args.until else today
@@ -140,12 +142,13 @@ def cmd_prepare(args) -> int:
     abstract["notion_title"] = run_date if start == end else f"{start:%m%d}~{end:%m%d}"
     abstract["empty"] = not scored["included"]
     abstract["previous_block"] = bool(previous)
+    abstract["saved_notes"] = write.saved_notes(logs, state, run_date, fingerprint, redo)
     run = {
         "date": run_date, "key": key, "period": period, "project": project, "fingerprint": fingerprint,
         "generated_at": collected_at, "considered": [c["sha"] for c in commits],
         "patches": sorted({c["patch_id"] for c in commits if c.get("patch_id")}),
         "types": abstract["counts"]["by_type"],
-        "progress": [{"feature": p["feature"], "pct": p["pct"], "basis": p["basis"],
+        "progress": [{"feature": p["feature"], "pct": p["pct"], "basis": p["basis"], "milestones": p["milestones"],
                       "prev": p["pct"] - p["delta"] if p["delta"] is not None else None} for p in prog["features"]],
         "touched_features": touched, "work_unit": prog["work_unit"], "metrics": abstract["metrics"], "repo_terms": profile.repo_terms,
         "notion_title": abstract["notion_title"], "identity": project_identity(repo),
@@ -163,6 +166,11 @@ def load_run(repo: Path, logs: Path) -> dict:
     return run
 
 
+def saved_notes_text(logs: Path, run_date: str) -> str | None:
+    path = write.notes_file(logs, run_date)
+    return path.read_text(encoding="utf-8") if path.is_file() else None
+
+
 def cmd_gate(args) -> int:
     repo, logs, _ = open_project(Path(args.repo), args.agent_dir)
     profile = load_profile(logs)
@@ -170,7 +178,7 @@ def cmd_gate(args) -> int:
     if args.kind == "entry":
         run = load_run(repo, logs)
         profile.repo_terms = run["repo_terms"]
-        result = gate.check(text, profile, run, "entry")
+        result = gate.check(text, profile, run, "entry", saved_notes_text(logs, run["date"]))
     else:
         with_repo_terms(repo, profile, [])
         result = gate.check(text, profile, None, args.kind)
@@ -181,7 +189,7 @@ def cmd_notes(args) -> int:
     """Check the leader's WORK NOTES (structured format) before the writer is spawned."""
     if not args.check:
         raise TaskLogError("notes needs --check", "tasklog.py notes --check --entry - < 작업 메모")
-    repo, logs, _ = open_project(Path(args.repo), args.agent_dir)
+    repo, logs, state = open_project(Path(args.repo), args.agent_dir)
     profile = load_profile(logs)
     text = read_entry(args.entry)
     run = read_json(logs / RUN_FILE, None)
@@ -190,6 +198,10 @@ def cmd_notes(args) -> int:
     else:
         with_repo_terms(repo, profile, [])
     result = gate.notes_problems(text, profile)
+    if args.save and result["ok"]:
+        if run is None:
+            raise TaskLogError("no prepared run to save the notes under", "먼저 prepare 를 실행하세요.")
+        result["saved"] = write.save_notes(repo, logs, state, run, text)
     return emit(result, 0 if result["ok"] else 2)
 
 
@@ -199,7 +211,7 @@ def cmd_write(args) -> int:
     run = load_run(repo, logs)
     profile.repo_terms = run["repo_terms"]
     text = read_entry(args.entry)
-    result = gate.check(text, profile, run, "entry")
+    result = gate.check(text, profile, run, "entry", saved_notes_text(logs, run["date"]))
     if not result["ok"]:
         return emit({"ok": False, "status": "blocked"} | result, 2)
     done = write.write_entry(repo, logs, state, run, text)
@@ -306,7 +318,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("prepare")
     p.add_argument("--since")
     p.add_argument("--until")
-    p.add_argument("--on", default="", help="work date: YYYY-MM-DD, MM-DD, 오늘/어제/그제, or a range A~B (default: today)")
+    p.add_argument("--on", default="", help="work date: YYYY-MM-DD, MM-DD, 오늘/어제/그제, or a range A~B (default: today); add '다시 정리' to ignore saved notes")
     p.set_defaults(func=cmd_prepare)
     p = sub.add_parser("gate")
     p.add_argument("--entry", required=True, help="draft file, or - to read it from stdin")
@@ -314,6 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_gate)
     p = sub.add_parser("notes")
     p.add_argument("--check", action="store_true", help="validate WORK NOTES (exit 2 lists what is missing per item)")
+    p.add_argument("--save", action="store_true", help="with --check: store passing notes as log-part/notes/<date>.md for reruns")
     p.add_argument("--entry", required=True, help="notes file, or - to read them from stdin")
     p.set_defaults(func=cmd_notes)
     p = sub.add_parser("write")

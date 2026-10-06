@@ -11,7 +11,7 @@ from pathlib import Path
 from common import TaskLogError, project_identity, write_json, write_text_atomic
 
 TITLE = re.compile(r"^# (\d{4}-\d{2}-\d{2}(?:~\d{4}-\d{2}-\d{2})?) · (.+)$")
-NOTION_KINDS = {"root", "project", "log", "progress", "portfolio", "day"}
+NOTION_KINDS = {"root", "container", "project", "log", "progress", "portfolio", "day"}
 
 
 def evidence_fingerprint(run_date: str, key: str, commits: list[dict], excluded: list[dict]) -> str:
@@ -68,11 +68,15 @@ def write_entry(repo: Path, logs: Path, state: dict, run: dict, entry: str) -> d
     state["processed"] = sorted(set(state["processed"]) | set(run["considered"]))
     state["processed_patches"] = sorted(set(state.get("processed_patches", [])) | set(run.get("patches", [])))
     updated = run["period"]["to"]
+    live = {item["feature"] for item in run["progress"]}
+    for gone in [label for label in state["features"] if label not in live]:
+        del state["features"][gone]  # features whose paths no longer exist are dropped
     for item in run["progress"]:
         old_feature = state["features"].get(item["feature"], {})
         prev = old_feature.get("prev") if old_feature.get("updated") == updated else old_feature.get("pct")
         state["features"][item["feature"]] = {"pct": item["pct"], "basis": item["basis"], "updated": updated,
-                                              "prev": prev}
+                                              "prev": prev, "milestones": item.get("milestones"),
+                                              "shown": item.get("shown")}
     if run.get("work_unit"):
         state["work_unit"] = {k: run["work_unit"].get(k) for k in ("label", "start", "end", "pct", "commits")}
     kept = [m for m in state["metrics"] if not (m["date"] == run_date and m.get("key") == key)]
@@ -94,7 +98,8 @@ def render_index(state: dict, project: str) -> str:
     if state["features"]:
         lines += ["", "## 기능별 진행 정도 (추정)", "", "| 기능 | 진행 | 근거 | 갱신 |", "|---|---|---|---|"]
         for label, item in sorted(state["features"].items()):
-            lines.append(f"| {label} | {item['pct']}% | {item['basis']} | {item['updated']} |")
+            shown = item.get("shown") or ("마일스톤 미설정" if "마일스톤 없음" in item["basis"] else f"약 {item['pct']}%")
+            lines.append(f"| {label} | {shown} | {item['basis']} | {item['updated']} |")
     if unit := state.get("work_unit"):
         lines += ["", "## 작업 단위", f"- {unit['label']} — {unit.get('start', '')}~{unit.get('end') or ''}"
                   + (f", 진행 {unit['pct']}% (추정)" if unit.get("pct") is not None else "")]
@@ -103,15 +108,16 @@ def render_index(state: dict, project: str) -> str:
 
 NOTION_START = "<!-- tasklog:pages:start -->"
 NOTION_END = "<!-- tasklog:pages:end -->"
-NOTION_ROLES = (("root", "루트", "개인 페이지", "(워크스페이스 개인 영역)"),
+NOTION_ROLES = (("root", "루트", "개인페이지", "(워크스페이스 개인 영역)"),
+                ("container", "프로젝트 모음", "project", ""),
                 ("project", "프로젝트", "", ""),
                 ("log", "작업로그", "작업로그", ""),
                 ("progress", "진행 현황", "진행 현황", ""),
                 ("portfolio", "포트폴리오 요약", "포트폴리오 요약", "(포트폴리오 정리 때 생성)"))
 NOTION_TEMPLATE = """# Notion 위치
 
-- 경로: 개인 페이지 / {project} / 작업로그
-- 루트 페이지: 개인 페이지
+- 경로: 개인페이지 / project / {project} / 작업로그
+- 루트 페이지: 개인페이지
 - 템플릿: notion-template.md
 
 ## 페이지
@@ -121,7 +127,7 @@ NOTION_TEMPLATE = """# Notion 위치
 ## 구조
 
 작업로그
-├── 진행 현황        기능별 진행률·최근 변화·남은 일, 실행마다 갱신
+├── 진행 현황        기능별 진행(마일스톤이 있는 기능만 %)·최근 변화·남은 일, 실행마다 갱신
 ├── 포트폴리오 요약   `포트폴리오 정리` 때 만들고 갱신
 ├── 2026-10-05       날짜 기록(제목은 날짜만)
 └── 0928~1002        기간 기록(제목은 MMDD~MMDD)
@@ -203,6 +209,10 @@ def forget_day(logs: Path, state: dict, day: str, project: str) -> dict:
     del state["days"][day]
     state["metrics"] = [m for m in state["metrics"] if m.get("date") != day]
     page = state["notion"].get("days", {}).pop(day, None)
+    notes = notes_file(logs, day)
+    if notes.is_file():
+        notes.unlink()
+    state.get("notes", {}).pop(day, None)
     write_json(logs / "state.json", state)
     write_text_atomic(logs / "index.md", render_index(state, project))
     result = {"status": "forgotten", "date": day, "file_removed": removed, "notion": page}
@@ -233,3 +243,31 @@ def portfolio_rollup(state: dict, project: str, part: str) -> dict:
         "work_unit": state.get("work_unit"),
         "notion": state["notion"].get("portfolio"),
     }
+
+
+# ---------------------------------------------------------------- saved work notes
+
+def notes_file(logs: Path, run_date: str) -> Path:
+    return logs / "notes" / f"{run_date}.md"
+
+
+def save_notes(repo: Path, logs: Path, state: dict, run: dict, text: str) -> dict:
+    """Persist checked notes for the prepared date, tied to its evidence fingerprint (kept in state.json only)."""
+    path = notes_file(logs, run["date"])
+    state.setdefault("project", project_identity(repo))
+    write_text_atomic(path, text.strip() + "\n")
+    state.setdefault("notes", {})[run["date"]] = {"fingerprint": run["fingerprint"], "saved_at": run["generated_at"]}
+    write_json(logs / "state.json", state)
+    return {"file": str(path), "fingerprint": run["fingerprint"]}
+
+
+def saved_notes(logs: Path, state: dict, run_date: str, fingerprint: str, redo: bool = False) -> dict:
+    """status: reuse (same evidence, use as is) | stale (evidence changed: revise only what changed) | redo | none."""
+    path = notes_file(logs, run_date)
+    record = state.get("notes", {}).get(run_date)
+    if not record or not path.is_file():
+        return {"status": "none", "text": ""}
+    text = path.read_text(encoding="utf-8")
+    if redo:
+        return {"status": "redo", "text": ""}
+    return {"status": "reuse" if record.get("fingerprint") == fingerprint else "stale", "text": text}

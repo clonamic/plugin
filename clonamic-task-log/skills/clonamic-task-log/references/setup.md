@@ -17,7 +17,7 @@
 4. 작업 단위: 스프린트 같은 반복 단위가 있나요?
    저장소에서 찾은 후보: 태그 sprint-* (12개) / 릴리스 태그 간격 약 14일
    → 기본값: 첫 번째 후보, 후보가 없으면 "없음"
-5. Notion 위치: 기본값 개인 페이지 / demo / 작업로그
+5. Notion 위치: 기본값 개인페이지 / project / demo / 작업로그
    없으면 이 경로로 페이지를 새로 만듭니다.
 6. 처음 기록할 범위: 기본값 최근 7일
 ```
@@ -37,9 +37,9 @@
 
 Notion MCP 도구가 있을 때만 한다. 없으면 로컬 파일만 만들고 보고서에 `승인 시 진행: Notion 페이지 생성`으로 남긴다.
 
-1. [notion](notion.md)의 "위치 확정" 순서대로 루트 → 프로젝트 페이지 → 작업로그를 찾거나 만든다. 같은 제목이 둘 이상이면 멈추고 사용자에게 고르게 한다.
+1. [notion](notion.md)의 "위치 확정" 순서대로 루트(개인페이지) → `project` → 프로젝트 페이지 → 작업로그를 찾거나 만든다. 같은 제목이 둘 이상이면 멈추고 사용자에게 고르게 한다.
 2. 작업로그 아래에 `진행 현황` 페이지를 만든다. 서식은 notion-template의 "진행 현황 페이지".
-3. 만든 페이지마다 `tasklog.py notion-set --kind root|project|log|progress --id <ID> --url <URL> --title <제목>`으로 state.json에 적고, notion.md의 표에도 같은 값을 적는다.
+3. 만든 페이지마다 `tasklog.py notion-set --kind root|container|project|log|progress --id <ID> --url <URL> --title <제목>`으로 state.json에 적고, notion.md의 표에도 같은 값을 적는다.
 4. 페이지를 만들고 응답을 받지 못했으면 다시 만들지 않는다. 같은 제목으로 검색하고 내용을 확인한 뒤 그 페이지를 쓴다.
 
 ## 4. `설정`으로 다시 들어왔을 때

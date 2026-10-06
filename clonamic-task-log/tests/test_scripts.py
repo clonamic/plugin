@@ -146,9 +146,9 @@ def build_payments(repo: Repo) -> dict[str, str]:
 
 
 def entry_for(result: dict, day: str | None = None) -> str:
-    """A valid new-format entry; numbers are copied from the prepared run."""
+    """A valid 1.2 entry; numbers are copied from the prepared run."""
     day = day or result["date"]
-    pct = result["progress"][0]["pct"]
+    done, total = result["progress"][0]["milestones"] if result["progress"] else (1, 2)
     return f"""# {day} · 결제 요청 API 신설
 
 ## 핵심 요약
@@ -156,29 +156,25 @@ def entry_for(result: dict, day: str | None = None) -> str:
 
 ## 한 일
 ### 결제 모듈 — 결제 요청 처리 흐름을 새로 구성
-- 문제 — 결제 요청을 처리하는 진입점이 없었습니다.
-- 한 일 — 요청 처리 흐름을 만들고 흐름 테스트를 추가했습니다.
+- 배경 — 결제 요청을 처리하는 진입점이 없었습니다.
+- 접근 — 요청 처리 흐름을 만들고 흐름 테스트를 추가했습니다.
 - 결과 — 응답 시간이 120ms(측정)에서 80ms(측정)로 줄었습니다.
 
-## 진행 상황
-| 기능 | 진행률 | 오늘 변화 | 남은 일 |
-|---|---|---|---|
-| 결제 모듈 | 약 {pct}% | 요청 처리 흐름 구성 | 환불 처리 |
+## 오늘 변화
+- 결제 모듈 — 요청 처리 흐름 구성 (마일스톤 {done}/{total})
 
 ## 다음 할 일
 - 환불 처리를 구현합니다.
-
-## 포트폴리오 문장
-- 결제 요청 처리 흐름을 새로 만들어 응답 시간을 120ms(측정)에서 80ms(측정)로 줄였습니다.
 """
 
 
-GOOD_NOTES = """### 영수증 인식
+GOOD_NOTES = """### 영수증 인식 — 인식 단계를 하나의 흐름으로 묶음
 - 이전 상태: 영수증 인식 API는 비어 있었고 택시 미터 인식은 사진을 통째로 외부 API에 보냈습니다.
+- 영향: 영수증은 직접 입력해야 했고 모든 인식 요청이 외부 서비스 장애에 그대로 노출됐습니다.
 - 사실: 한국어 글자 인식 뒤 정규식으로 금액과 날짜 후보를 뽑았습니다.
 - 사실: 후보마다 가설 문장을 만들어 문장 판정 모델로 점수를 매겼습니다.
 - 판단: 통과 기준을 높게 둠 — 확신 없는 값을 돌려주지 않기 위해서입니다.
-- 확인: 샌드박스에서 사진 한 장으로 확인했습니다.
+- 검증: 샌드박스에서 실제 영수증 사진 한 장으로 인식을 돌려 금액과 날짜가 맞는 것을 확인했습니다.
 """
 
 
@@ -192,6 +188,9 @@ class NotesCheckTests(unittest.TestCase):
     def test_missing_facts_and_prior_state(self) -> None:
         one_fact = GOOD_NOTES.replace("- 사실: 후보마다 가설 문장을 만들어 문장 판정 모델로 점수를 매겼습니다.\n", "")
         self.assertIn("facts-missing", self.tokens(one_fact))
+        self.assertIn("영향-count", self.tokens("\n".join(ln for ln in GOOD_NOTES.splitlines() if not ln.startswith("- 영향"))))
+        self.assertIn("검증-count", self.tokens("\n".join(ln for ln in GOOD_NOTES.splitlines() if not ln.startswith("- 검증"))))
+        self.assertIn("judgment-missing", self.tokens("\n".join(ln for ln in GOOD_NOTES.splitlines() if not ln.startswith("- 판단"))))
         no_prior = "\n".join(ln for ln in GOOD_NOTES.splitlines() if "이전 상태" not in ln)
         self.assertIn("prior-state", self.tokens(no_prior))
 
@@ -205,6 +204,32 @@ class NotesCheckTests(unittest.TestCase):
         bad = GOOD_NOTES.replace("영수증 인식 API는 비어 있었고 택시 미터 인식은 사진을 통째로 외부 API에 보냈습니다.",
                                  "사진에서 금액과 이체 정보를 구분해 골라야 했습니다.")
         self.assertIn("prior-state-goal", self.tokens(bad))
+
+    def test_verification_is_concrete_or_literally_none(self) -> None:
+        vague = GOOD_NOTES.replace("샌드박스에서 실제 영수증 사진 한 장으로 인식을 돌려 금액과 날짜가 맞는 것을 확인했습니다.", "확인함")
+        self.assertIn("verify-vague", self.tokens(vague))
+        none = GOOD_NOTES.replace("샌드박스에서 실제 영수증 사진 한 장으로 인식을 돌려 금액과 날짜가 맞는 것을 확인했습니다.", "없음")
+        self.assertEqual(self.tokens(none), [])
+
+    def test_old_confirm_label_is_rejected(self) -> None:
+        self.assertIn("format", self.tokens(GOOD_NOTES + "- 확인: 한 번 돌려 봤습니다.\n"))
+
+    def test_more_than_three_items_must_be_grouped(self) -> None:
+        many = "\n".join(GOOD_NOTES.replace("영수증 인식", f"기능 {i}") for i in range(4))
+        self.assertIn("too-many-items", self.tokens(many))
+        self.assertNotIn("too-many-items", self.tokens("\n".join(GOOD_NOTES.replace("영수증 인식", f"기능 {i}") for i in range(3))))
+
+    def test_descriptive_past_state_is_accepted_but_goals_stay_blocked(self) -> None:
+        for line in ("기록이 커밋 수와 파일 수 같은 git 통계와 추측 문장으로 채워졌고, 실행한 날짜로 저장되어 …",
+                     "설정 단계에서 저장소마다 커밋 메시지 훅을 기본으로 설치하게 되어 있어 …",
+                     "사진 보정은 있었지만 인식은 외부 서비스에만 맡겼습니다.",
+                     "결과 저장이 실행 이후 한 번뿐이었고 다시 실행하면 덮어썼습니다."):
+            self.assertFalse(gate.goal_only(line), line)
+            self.assertNotIn("prior-state-goal", self.tokens(GOOD_NOTES.replace(
+                "영수증 인식 API는 비어 있었고 택시 미터 인식은 사진을 통째로 외부 API에 보냈습니다.", line)), line)
+        for goal in ("사진에서 금액과 이체 정보를 구분해 골라야 했습니다.", "기록을 날짜별로 남기려면 저장 위치가 필요했습니다.",
+                     "금액을 읽는 기능을 만들었습니다."):
+            self.assertTrue(gate.goal_only(goal), goal)
 
     def test_leak_blocks(self) -> None:
         leaky = GOOD_NOTES + "- 사실: src/payments/api.py 안의 요청 처리 함수를 바꿨습니다.\n"
@@ -443,9 +468,9 @@ class RedactGateTests(unittest.TestCase):
 
 class GateTests(unittest.TestCase):
     RUN = {"metrics": [{"before": 120.0, "after": 80.0, "change_pct": -33.3}],
-           "progress": [{"feature": "결제 모듈", "pct": 65, "prev": 50}],
+           "progress": [{"feature": "결제 모듈", "pct": 65, "prev": 50, "milestones": [1, 2]}],
            "touched_features": ["결제 모듈"]}
-    RESULT = {"date": DAY, "progress": [{"pct": 65}]}
+    RESULT = {"date": DAY, "progress": [{"pct": 65, "milestones": [1, 2]}]}
 
     def entry(self, *swaps: tuple[str, str]) -> str:
         text = entry_for(self.RESULT)
@@ -465,16 +490,19 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.tokens(self.entry()), [])
         self.assertEqual(self.tokens(self.entry(("# 2026-09-29 ·", "# 2026-09-28~2026-09-29 ·"))), [])
 
-    def test_progress_section_only_required_with_features(self) -> None:
-        no_progress = self.entry().split("## 진행 상황")[0] + "## 포트폴리오 문장" + self.entry().split("## 포트폴리오 문장")[1]
-        self.assertIn("section", self.tokens(no_progress))
-        bare = parse_profile(PROFILE.split("## 기능")[0])
-        self.assertEqual(self.tokens(no_progress, bare), [])
+    def test_only_summary_and_work_are_required(self) -> None:
+        minimal = self.entry().split("## 오늘 변화")[0]
+        self.assertEqual(self.tokens(minimal), [])
+        self.assertIn("section", self.tokens(minimal.replace("## 핵심 요약\n- 결제 요청 API를 새로 만들고 응답 시간을 줄였습니다.\n\n", "")))
+
+    def test_portfolio_and_progress_sections_are_blocked(self) -> None:
+        self.assertIn("portfolio-section", self.tokens(self.entry() + "\n## 포트폴리오 문장\n- 결제 흐름을 새로 만들었습니다.\n"))
+        self.assertIn("progress-section", self.tokens(self.entry().replace("## 오늘 변화", "## 진행 상황")))
 
     def test_problem_line_must_show_prior_state(self) -> None:
-        old = "- 문제 — 결제 요청을 처리하는 진입점이 없었습니다."
-        self.blocked("problem-goal-only", (old, "- 문제 — 금액과 이체 정보를 구분해 골라야 했습니다."))
-        self.blocked("problem-goal-only", (old, "- 문제 — 기존 흐름을 바꿔야 했습니다."))
+        old = "- 배경 — 결제 요청을 처리하는 진입점이 없었습니다."
+        self.blocked("problem-goal-only", (old, "- 배경 — 금액과 이체 정보를 구분해 골라야 했습니다."))
+        self.blocked("problem-goal-only", (old, "- 배경 — 기존 흐름을 바꿔야 했습니다."))
         self.assertNotIn("problem-goal-only", self.tokens(self.entry()))
 
     def test_each_hedging_phrase_blocks(self) -> None:
@@ -503,9 +531,8 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.tokens(self.entry(("줄였습니다.\n\n## 한 일", "줄였습니다. 33.3%(측정) 단축했습니다.\n\n## 한 일"))), [])
 
     def test_percentage_must_be_in_progress_or_metrics(self) -> None:
-        self.blocked("percent", ("약 65%", "약 99%"))
         self.blocked("percent", ("- 결제 요청 API를 새로 만들고", "- 성공률 97%로 결제 요청 API를 새로 만들고"))
-        self.assertEqual(self.tokens(self.entry(("약 65%", "약 50%"))), [])  # previous value is allowed
+        self.assertEqual(self.tokens(self.entry(("- 결제 요청 API를 새로 만들고", "- 진행률 65%로 결제 요청 API를 새로 만들고"))), [])
 
     def test_entry_over_40_non_empty_lines_blocks(self) -> None:
         self.assertNotIn("length", self.tokens(self.entry()))
@@ -518,9 +545,9 @@ class GateTests(unittest.TestCase):
 
     def test_field_line_over_220_characters_blocks(self) -> None:
         long = "결제 요청을 처리했습니다. " * 20
-        self.blocked("field-length", ("- 한 일 — 요청 처리 흐름을 만들고 흐름 테스트를 추가했습니다.", "- 한 일 — " + long))
+        self.blocked("field-length", ("- 접근 — 요청 처리 흐름을 만들고 흐름 테스트를 추가했습니다.", "- 접근 — " + long))
         ok = "가" * 200
-        self.assertNotIn("field-length", self.tokens(self.entry(("- 한 일 — 요청 처리 흐름을 만들고 흐름 테스트를 추가했습니다.", "- 한 일 — " + ok))))
+        self.assertNotIn("field-length", self.tokens(self.entry(("- 접근 — 요청 처리 흐름을 만들고 흐름 테스트를 추가했습니다.", "- 접근 — " + ok))))
 
     def test_others_line_allows_three_items_at_most(self) -> None:
         base = ("- 결과 — 응답 시간이 120ms(측정)에서 80ms(측정)로 줄었습니다.\n",
@@ -532,22 +559,56 @@ class GateTests(unittest.TestCase):
         self.blocked("others", swap)
         self.blocked("others", (base[0], base[1].format("가 · 나 · 다 · 라")))
 
-    def test_progress_rows_must_be_touched_features(self) -> None:
-        row = "| 결제 모듈 | 약 65% | 요청 처리 흐름 구성 | 환불 처리 |\n"
-        self.blocked("progress-untouched", (row, row + "| 환불 | 약 65% | 변화 | 시험 |\n"))
+    def test_change_section_lists_touched_features_with_milestones(self) -> None:
+        line = "- 결제 모듈 — 요청 처리 흐름 구성 (마일스톤 1/2)\n"
+        self.blocked("progress-untouched", (line, line + "- 환불 — 변화 (마일스톤 0/1)\n"))
         self.blocked("progress-untouched", ("요청 처리 흐름 구성", "오늘 손대지 않음"))
+        self.blocked("change-format", (line, "- 결제 모듈 요청 처리 흐름 구성\n"))
+        self.blocked("change-milestone", (" (마일스톤 1/2)", ""))
+        self.blocked("change-milestone", ("(마일스톤 1/2)", "(마일스톤 2/2)"))
         self.assertNotIn("progress-untouched", self.tokens(self.entry()))
+        no_ms = {**self.RUN, "progress": [{"feature": "결제 모듈", "pct": 35, "prev": 30, "milestones": [0, 0]}]}
+        text = self.entry((" (마일스톤 1/2)", ""))
+        self.assertEqual([b["token"] for b in gate.check(text, parse_profile(PROFILE), no_ms)["blocked"]], [])
+        self.assertIn("change-milestone", [b["token"] for b in gate.check(self.entry(), parse_profile(PROFILE), no_ms)["blocked"]])
 
-    def test_progress_section_not_required_when_nothing_was_touched(self) -> None:
-        text = self.entry()
-        head, rest = text.split("## 진행 상황")
-        text = head + "## 다음 할 일" + rest.split("## 다음 할 일")[1]
-        run = self.RUN | {"touched_features": []}
-        tokens = [b["token"] for b in gate.check(text, parse_profile(PROFILE), run)["blocked"]]
-        self.assertEqual(tokens, [])
-        run = self.RUN | {"touched_features": ["결제 모듈"]}
-        tokens = [b["token"] for b in gate.check(text, parse_profile(PROFILE), run)["blocked"]]
-        self.assertIn("section", tokens)
+    def test_lone_dash_cells_and_values_block(self) -> None:
+        for bad in ("- 오늘 변화 — -", "| 결제 모듈 | - | 변화 |", "- -", "-"):
+            self.blocked("empty-cell", ("- 환불 처리를 구현합니다.", bad))
+        self.assertNotIn("empty-cell", self.tokens(self.entry()))
+        self.assertNotIn("empty-cell", self.tokens(self.entry(("- 환불 처리를 구현합니다.", "| 가 | 나 |\n|---|---|\n| 다 | 라 |"))))
+
+    def test_more_than_three_work_items_block_but_the_others_bullet_does_not(self) -> None:
+        item = "### 기능 {n} — 성과 {n}\n- 배경 — 기존에는 수동이었습니다.\n- 접근 — 자동으로 바꿨습니다.\n- 결과 — 자동으로 돌아갑니다.\n"
+        def with_items(n: int) -> str:
+            base = self.entry()
+            head, rest = base.split("### 결제 모듈 — 결제 요청 처리 흐름을 새로 구성\n", 1)
+            body = rest.split("\n## 오늘 변화", 1)
+            return head + "".join(item.format(n=i) for i in range(n)) + "- 그 밖에 — 문서 보강\n\n## 오늘 변화" + body[1]
+        self.assertNotIn("too-many-items", self.tokens(with_items(3)))
+        self.assertIn("too-many-items", self.tokens(with_items(4)))
+
+    def test_internal_terms_from_the_profile_are_blocked(self) -> None:
+        profile = parse_profile(PROFILE.replace("- 시간대: Asia/Seoul", "- 시간대: Asia/Seoul\n- 내부 용어: 게이트, 작업 메모"))
+        self.assertEqual(profile.internal_terms, ["게이트", "작업 메모"])
+        text = self.entry(("- 결제 요청 API를 새로 만들고", "- 게이트가 대괄호 꼬리표를 막게 했고"))
+        self.assertIn("게이트", [b["token"] for b in gate.check(text, profile, self.RUN)["blocked"]
+                                 if b["kind"] == "internal-term"])
+        self.assertEqual([b for b in gate.check(self.entry(), profile, self.RUN)["blocked"]], [])
+        self.assertNotIn("internal-term", [b["kind"] for b in gate.check(text, parse_profile(PROFILE), self.RUN)["blocked"]])
+
+    def test_result_cannot_claim_verification_when_notes_say_none(self) -> None:
+        notes = GOOD_NOTES.replace("영수증 인식 — 인식 단계를 하나의 흐름으로 묶음", "결제 모듈 — 결제 요청 처리 흐름을 새로 구성").replace(
+            "샌드박스에서 실제 영수증 사진 한 장으로 인식을 돌려 금액과 날짜가 맞는 것을 확인했습니다.", "없음")
+        claimed = self.entry(("로 줄었습니다.", "로 줄었고 시험이 통과했습니다."))
+        def tokens(text: str, notes_text: str | None) -> list[str]:
+            return [b["token"] for b in gate.check(text, parse_profile(PROFILE), self.RUN, "entry", notes_text)["blocked"]]
+        self.assertIn("unverified-claim", tokens(claimed, notes))
+        self.assertNotIn("unverified-claim", tokens(claimed, GOOD_NOTES.replace("영수증 인식 — 인식 단계를 하나의 흐름으로 묶음", "결제 모듈 — 결제 요청 처리 흐름을 새로 구성")))
+        self.assertNotIn("unverified-claim", tokens(self.entry(), notes))
+        self.assertNotIn("unverified-claim", tokens(claimed, None))
+        for word in ("확인", "검증"):
+            self.assertIn("unverified-claim", tokens(self.entry(("로 줄었습니다.", f"로 줄었고 {word}했습니다.")), notes))
 
     def test_repeated_todo_actions_block(self) -> None:
         swap = ("- 환불 처리를 구현합니다.\n",
@@ -562,27 +623,23 @@ class GateTests(unittest.TestCase):
 
     def test_judgment_format_is_bold_choice_em_dash_reason(self) -> None:
         section = "## 기술 판단\n- **요청을 한 흐름으로 묶음** — 실패 지점을 바로 찾을 수 있습니다.\n\n"
-        good = self.entry(("## 진행 상황", section + "## 진행 상황"))
+        good = self.entry(("## 오늘 변화", section + "## 오늘 변화"))
         self.assertEqual(self.tokens(good), [])
         for bad in ("- 요청을 한 흐름으로 묶음 : 실패 지점을 찾습니다.", "- **요청을 묶음** : 이유입니다.",
                     "- 요청을 한 흐름으로 묶음 — 이유입니다.", "- **요청을 묶음** - 이유입니다."):
-            text = self.entry(("## 진행 상황", f"## 기술 판단\n{bad}\n\n## 진행 상황"))
+            text = self.entry(("## 오늘 변화", f"## 기술 판단\n{bad}\n\n## 오늘 변화"))
             found = self.tokens(text)
             self.assertTrue({"judgment-format", "judgment-colon"} & set(found), (bad, found))
-        colon = self.entry(("## 진행 상황", "## 기술 판단\n- **묶음** — 이유 : 설명입니다.\n\n## 진행 상황"))
+        colon = self.entry(("## 오늘 변화", "## 기술 판단\n- **묶음** — 이유 : 설명입니다.\n\n## 오늘 변화"))
         self.assertIn("judgment-colon", self.tokens(colon))
-
-    def test_missing_portfolio_sentence_blocks(self) -> None:
-        text = self.entry().split("## 포트폴리오 문장")[0]
-        self.assertIn("section", self.tokens(text))
 
     def test_missing_or_duplicate_result_field_blocks(self) -> None:
         self.blocked("field", ("- 결과 — 응답 시간이 120ms(측정)에서 80ms(측정)로 줄었습니다.\n", ""))
         self.blocked("field", ("- 결과 — 응답", "- 결과 — 응답 시간입니다.\n- 결과 — 응답"))
 
     def test_wrong_field_order_blocks(self) -> None:
-        self.blocked("field", ("- 문제 — 결제 요청을 처리하는 진입점이 없었습니다.\n", ""),
-                     ("- 결과 —", "- 문제 — 결제 요청을 처리하는 진입점이 없었습니다.\n- 결과 —"))
+        self.blocked("field", ("- 배경 — 결제 요청을 처리하는 진입점이 없었습니다.\n", ""),
+                     ("- 결과 —", "- 배경 — 결제 요청을 처리하는 진입점이 없었습니다.\n- 결과 —"))
 
     def test_wrong_section_order_blocks(self) -> None:
         text = self.entry()
@@ -859,7 +916,10 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertTrue(out["first_run"])
         self.assertEqual(out["defaults"]["identities"], [ME])
-        self.assertEqual(out["defaults"]["notion_path"], "개인 페이지 / fresh / 작업로그")
+        self.assertEqual(out["defaults"]["notion_path"], "개인페이지 / project / fresh / 작업로그")
+        notion = [c for c in out["checks"] if c["name"] == "notion-mcp"][0]
+        self.assertEqual((notion["status"], notion["ok"], notion["detail"]),
+                         ("unknown", None, "리더가 자기 도구 목록에서 확인해야 함"))
         self.assertEqual(out["defaults"]["work_unit_candidates"][0]["basis"], "태그 sprint-*")
         self.assertEqual(out["defaults"]["feature_candidates"][0]["path"], "src/search")
 
@@ -957,6 +1017,95 @@ class StdinEntryTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
 
 
+class NotesPersistenceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.base = Path(tempfile.mkdtemp(dir=_TMP.name))
+        self.repo = Repo(self.base, "np")
+        build_payments(self.repo)
+        self.repo.profile()
+        self.result = prepare(self.repo)
+        self.notes = GOOD_NOTES.replace("영수증 인식 — 인식 단계를 하나의 흐름으로 묶음", "결제 모듈 — 결제 요청 처리 흐름을 새로 구성")
+        self.file = self.repo.path / f".claude/log-part/notes/{DAY}.md"
+
+    def save(self, text: str) -> tuple[int, dict]:
+        proc = subprocess.run([sys.executable, str(TASKLOG), "--repo", str(self.repo.path), "--agent-dir", ".claude",
+                               "notes", "--check", "--save", "--entry", "-"], input=text, capture_output=True, text=True, env=GIT_ENV)
+        return proc.returncode, json.loads(proc.stdout)
+
+    def test_checked_notes_are_saved_per_date_and_failed_ones_are_not(self) -> None:
+        self.assertEqual(self.result["saved_notes"], {"status": "none", "text": ""})
+        code, out = self.save("### 기능\n- 사실: 너무 짧음\n")
+        self.assertEqual(code, 2)
+        self.assertFalse(self.file.exists())
+        code, out = self.save(self.notes)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.file.read_text(encoding="utf-8"), self.notes.strip() + "\n")
+        self.assertEqual(self.repo.state()["notes"][DAY]["fingerprint"], self.result["evidence"]["fingerprint"])
+
+    def test_same_evidence_reuses_saved_notes_and_only_redo_rewrites(self) -> None:
+        self.save(self.notes)
+        again = prepare(self.repo)
+        self.assertEqual(again["saved_notes"]["status"], "reuse")
+        self.assertEqual(again["saved_notes"]["text"].strip(), self.notes.strip())
+        redo = prepare(self.repo, f"{DAY} 다시 정리")
+        self.assertEqual(redo["saved_notes"], {"status": "redo", "text": ""})
+        self.assertEqual(redo["date"], DAY)
+
+    def test_changed_evidence_marks_notes_stale(self) -> None:
+        self.save(self.notes)
+        self.repo.write("src/payments/refund.py", "def refund():\n    return 0\n")
+        self.repo.commit("feat(payments): implement refund")
+        stale = prepare(self.repo)
+        self.assertEqual(stale["saved_notes"]["status"], "stale")
+        self.assertIn("결제 모듈", stale["saved_notes"]["text"])
+
+    def test_gate_uses_saved_notes_to_keep_results_honest(self) -> None:
+        self.save(self.notes.replace("샌드박스에서 실제 영수증 사진 한 장으로 인식을 돌려 금액과 날짜가 맞는 것을 확인했습니다.", "없음"))
+        claimed = entry_for(self.result).replace("로 줄었습니다.", "로 줄었고 시험이 통과했습니다.")
+        code, out = run(self.repo.path, "gate", "--entry", str(self._draft(claimed)))
+        self.assertEqual(code, 2)
+        self.assertIn("unverified-claim", [b["token"] for b in out["blocked"]])
+        code, out = run(self.repo.path, "write", "--entry", str(self._draft(claimed)))
+        self.assertEqual(code, 2)
+        self.assertEqual(run(self.repo.path, "write", "--entry", str(self._draft(entry_for(self.result))))[0], 0)
+
+    def test_forget_removes_saved_notes(self) -> None:
+        self.save(self.notes)
+        run(self.repo.path, "write", "--entry", str(self._draft(entry_for(self.result))))
+        run(self.repo.path, "forget", "--date", DAY)
+        self.assertFalse(self.file.exists())
+        self.assertNotIn(DAY, self.repo.state().get("notes", {}))
+
+    def _draft(self, text: str) -> Path:
+        path = self.repo.path / ".claude/log-part/.draft.md"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+
+class ProgressOutputTests(unittest.TestCase):
+    def test_unmilestoned_features_show_no_percent_and_missing_paths_are_dropped(self) -> None:
+        base = Path(tempfile.mkdtemp(dir=_TMP.name))
+        repo = Repo(base, "pg")
+        build_payments(repo)
+        repo.write("src/search/index.py", "x = 1\n")
+        repo.commit("feat(search): index")
+        repo.profile(PROFILE + "\n### 검색\n- 경로: src/search\n\n### 사라진 기능\n- 경로: src/removed\n")
+        result = prepare(repo)
+        by = {p["feature"]: p for p in result["progress"]}
+        self.assertNotIn("사라진 기능", by)
+        self.assertEqual(by["결제 모듈"]["shown"], f"약 {by['결제 모듈']['pct']}%")
+        self.assertEqual(by["결제 모듈"]["milestones"], [1, 2])
+        self.assertEqual(by["검색"]["shown"], "마일스톤 미설정")
+        self.assertEqual(by["검색"]["milestones"], [0, 0])
+        text = entry_for(result)
+        entry = repo.path / ".claude/log-part/.draft.md"
+        entry.write_text(text, encoding="utf-8")
+        self.assertEqual(run(repo.path, "write", "--entry", str(entry))[0], 0)
+        index = (repo.path / ".claude/log-part/index.md").read_text(encoding="utf-8")
+        self.assertIn("| 검색 | 마일스톤 미설정 |", index)
+        self.assertNotIn("사라진 기능", index)
+
+
 class NotionMdSyncTests(unittest.TestCase):
     def setUp(self) -> None:
         self.base = Path(tempfile.mkdtemp(dir=_TMP.name))
@@ -970,6 +1119,8 @@ class NotionMdSyncTests(unittest.TestCase):
         self.assertIn("# Notion 위치", text)
         self.assertIn("| 작업로그 | 작업로그 | abc123 | https://n.so/abc |", text)
         self.assertIn("| 프로젝트 | nm |", text)
+        self.assertIn("| 프로젝트 모음 | project |", text)
+        self.assertIn("개인페이지 / project / nm / 작업로그", text)
         self.assertIn("## 구조", text)
 
     def test_rewrites_only_the_table_and_keeps_user_text(self) -> None:
