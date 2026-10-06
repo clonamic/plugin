@@ -93,7 +93,7 @@ class StructureTests(unittest.TestCase):
         self.assertLess(skill.index("korean"), skill.index("prepare --on"))
         self.assertNotRegex(skill, r"HTML 주석[을를]? (넣|쓴|남긴)")
         manifest = json.loads((ROOT / "plugin.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.1.0")
+        self.assertEqual(manifest["version"], "1.1.1")
 
     def test_entry_template_headings(self) -> None:
         text = (SKILL / "references" / "entry.md").read_text(encoding="utf-8")

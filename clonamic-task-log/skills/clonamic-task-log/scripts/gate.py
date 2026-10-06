@@ -25,6 +25,10 @@ PLACEHOLDER_RE = re.compile(
     r"|(?:^[\s\-*|]*|—\s*)(?:…|\.\.\.)\s*(?:\||$)"
 )
 MEASURED_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*[%A-Za-zµ가-힣/]{0,6}\s*\(측정\)")
+MAX_LINES = 40  # non-empty lines in an entry
+MAX_FIELD = 220  # characters in one 문제/한 일/결과 line
+MAX_OTHERS = 3  # items in '- 그 밖에 — …'
+JUDGMENT_RE = re.compile(r"^-\s+\*\*[^*\n]+\*\*\s+—\s+\S")
 PERCENT_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*%(?!p)")
 
 
@@ -88,6 +92,53 @@ def wording_problems(text: str, run: dict | None) -> list[dict]:
     return problems
 
 
+def _bullets(lines: list[str]) -> list[tuple[int, str]]:
+    return [(offset, line.strip()) for offset, line in enumerate(lines, 1) if line.strip().startswith("- ")]
+
+
+def add_judgment_problems(lines: list[str], number: int, add) -> None:
+    for offset, bullet in _bullets(lines):
+        if " : " in bullet:
+            add("judgment-colon", "기술 판단 uses '- **선택** — 이유', not '선택 : 이유'", number + offset)
+        elif not JUDGMENT_RE.match(bullet):
+            add("judgment-format", "기술 판단 bullet must be '- **선택** — 이유'", number + offset)
+
+
+def add_progress_problems(lines: list[str], number: int, touched: list[str] | None, add) -> None:
+    for offset, line in enumerate(lines, 1):
+        if "손대지 않" in line:
+            add("progress-untouched", "진행 상황 lists only features touched that day; drop '손대지 않음' rows", number + offset)
+            continue
+        row = line.strip()
+        if not row.startswith("|"):
+            continue
+        cells = [c.strip() for c in row.strip("|").split("|")]
+        if not cells or cells[0] == "기능" or set(cells[0]) <= set("-: "):
+            continue
+        if touched is not None and cells[0] not in touched:
+            add("progress-untouched", f"'{cells[0]}' was not touched in this run; only touched features belong in 진행 상황",
+                number + offset)
+
+
+def _action_tail(bullet: str, labels: list[str]) -> str:
+    text = re.sub(r"[.\s]+$", "", bullet[2:].strip())
+    for label in labels:
+        if text.startswith(label):
+            return text[len(label):].strip()
+    words = text.split()
+    return " ".join(words[-2:]) if len(words) >= 3 else text  # unknown feature name: compare the last two words
+
+
+def add_todo_problems(lines: list[str], number: int, labels: list[str], add) -> None:
+    seen: dict[str, int] = {}
+    for offset, bullet in _bullets(lines):
+        tail = _action_tail(bullet, labels)
+        if tail in seen:
+            add("todo-repeat", f"다음 할 일 repeats the action '{tail}'; merge into one line (e.g. '세 기능의 …')",
+                number + offset)
+        seen.setdefault(tail, offset)
+
+
 def contract_problems(text: str, profile: Profile | None, run: dict | None, kind: str = "entry") -> list[dict]:
     problems = wording_problems(text, run)
     if kind != "entry":
@@ -109,11 +160,25 @@ def contract_problems(text: str, profile: Profile | None, run: dict | None, kind
         add("section", "a section appears more than once")
     elif known != sorted(known, key=SECTIONS.index):
         add("section", "sections out of order: " + " > ".join(SECTIONS))
-    required = REQUIRED | ({"진행 상황"} if profile and profile.features else set())
+    touched = run.get("touched_features") if run else None
+    progress_needed = bool(profile and profile.features) and (touched is None or bool(touched))
+    required = REQUIRED | ({"진행 상황"} if progress_needed else set())
     for need in SECTIONS:
         if need in required and need not in titles:
             add("section", f"missing required section '## {need}'")
+    non_empty = sum(1 for ln in text.splitlines() if ln.strip())
+    if non_empty > MAX_LINES:
+        add("length", f"entry has {non_empty} non-empty lines; keep it to {MAX_LINES} or fewer (target 15-35)")
+    names = {f.label for f in profile.features} if profile else set()
+    names |= {p["feature"] for p in (run or {}).get("progress", [])}
+    labels = sorted(names, key=len, reverse=True)
     for title, number, lines in sections:
+        if title == "기술 판단":
+            add_judgment_problems(lines, number, add)
+        elif title == "진행 상황":
+            add_progress_problems(lines, number, touched, add)
+        elif title == "다음 할 일":
+            add_todo_problems(lines, number, labels, add)
         if title != "한 일":
             continue
         items: list[tuple[str, int, list[str]]] = []
@@ -124,6 +189,16 @@ def contract_problems(text: str, profile: Profile | None, run: dict | None, kind
                 items[-1][2].append(line)
         if not items:
             add("field", "한 일 needs at least one '### 기능 — 한 줄 성과' item", number)
+        for offset, line in enumerate(lines, 1):
+            m = FIELD_LINE.match(line)
+            if m and m.group(1).strip() in ITEM_FIELDS and len(line.strip()) > MAX_FIELD:
+                add("field-length", f"{m.group(1).strip()} line is {len(line.strip())} characters; keep each field to "
+                    f"{MAX_FIELD} or fewer (2 sentences)", number + offset)
+            if m and m.group(1).strip() == "그 밖에":
+                body = line.split("—", 1)[1] if "—" in line else ""
+                count = len([x for x in re.split(r",\s|·", body) if x.strip()])
+                if count > MAX_OTHERS:
+                    add("others", f"'그 밖에' lists {count} items; keep it to {MAX_OTHERS} or fewer", number + offset)
         for name, at, body in items:
             if " — " not in name:
                 add("field", f"한 일 / {name}: heading must be '### 기능 — 한 줄 성과'", at)

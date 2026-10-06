@@ -117,6 +117,26 @@ def set_notion(repo: Path, logs: Path, state: dict, kind: str, page_id: str, url
     return {"status": "recorded", "kind": kind}
 
 
+def forget_day(logs: Path, state: dict, day: str, project: str) -> dict:
+    """Delete one entry file, its state and index line. Notion pages cannot be trashed by the MCP: report the page."""
+    if day not in state["days"]:
+        raise TaskLogError(f"no recorded entry for {day}", "tasklog.py status 로 기록된 날짜를 확인하세요.")
+    path = logs / f"{day}.md"
+    removed = path.is_file()
+    if removed:
+        path.unlink()
+    del state["days"][day]
+    state["metrics"] = [m for m in state["metrics"] if m.get("date") != day]
+    page = state["notion"].get("days", {}).pop(day, None)
+    write_json(logs / "state.json", state)
+    write_text_atomic(logs / "index.md", render_index(state, project))
+    result = {"status": "forgotten", "date": day, "file_removed": removed, "notion": page}
+    if page:
+        result["user_action"] = (f"Notion 페이지 {page.get('url') or page.get('id')} 는 Notion MCP로 휴지통에 보낼 수 없습니다. "
+                                 "사용자가 직접 삭제하세요.")
+    return result
+
+
 def portfolio_rollup(state: dict, project: str, part: str) -> dict:
     days = sorted(state["days"])
     types: Counter[str] = Counter()

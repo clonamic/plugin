@@ -8,6 +8,7 @@
   gate             check an entry file (leaks, entry contract, banned wording, numbers)   exit 2 blocked
   write            gate, then write <date>.md (replaces the same date), update state.json and index.md
   korean           run clonamic-korean's check_revision.py (draft mode) on an entry   exit 0/1/2, 4 not installed
+  forget --date D  delete one day's entry, state and index line; prints the Notion page to trash by hand
   notion-set       record a Notion page id/url in state.json
   status           stored cursors, days, Notion ids (no commit data)
   portfolio        roll-up data for the portfolio summary
@@ -122,6 +123,8 @@ def cmd_prepare(args) -> int:
         "file_entries": sum(len(c["files"]) for c in commits),
         "contract": gate.CONTRACT,
     }
+    touched = [p["feature"] for p in prog["features"] if p["touched_now"]]
+    abstract["touched_features"] = touched
     abstract["entry_file"] = f"{run_date}.md"
     abstract["notion_title"] = run_date if start == end else f"{start:%m%d}~{end:%m%d}"
     abstract["empty"] = not scored["included"]
@@ -133,7 +136,7 @@ def cmd_prepare(args) -> int:
         "types": abstract["counts"]["by_type"],
         "progress": [{"feature": p["feature"], "pct": p["pct"], "basis": p["basis"],
                       "prev": p["pct"] - p["delta"] if p["delta"] is not None else None} for p in prog["features"]],
-        "work_unit": prog["work_unit"], "metrics": abstract["metrics"], "repo_terms": profile.repo_terms,
+        "touched_features": touched, "work_unit": prog["work_unit"], "metrics": abstract["metrics"], "repo_terms": profile.repo_terms,
         "notion_title": abstract["notion_title"], "identity": project_identity(repo),
     }
     write_json(logs / RUN_FILE, run)
@@ -174,6 +177,11 @@ def cmd_write(args) -> int:
         return emit({"ok": False, "status": "blocked"} | result, 2)
     done = write.write_entry(repo, logs, state, run, text)
     return emit({"ok": True} | done)
+
+
+def cmd_forget(args) -> int:
+    repo, logs, state = open_project(Path(args.repo), args.agent_dir)
+    return emit({"ok": True} | write.forget_day(logs, state, args.date, repo_name(repo)))
 
 
 def cmd_korean(args) -> int:
@@ -278,6 +286,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--entry", required=True)
     p.add_argument("--replace-past", action="store_true", help="ignored; kept so older commands still run")
     p.set_defaults(func=cmd_write)
+    p = sub.add_parser("forget")
+    p.add_argument("--date", required=True, help="entry key: YYYY-MM-DD, or the range key YYYY-MM-DD~YYYY-MM-DD")
+    p.set_defaults(func=cmd_forget)
     p = sub.add_parser("korean")
     p.add_argument("--entry", help="draft to check; without it, only locate clonamic-korean")
     p.set_defaults(func=cmd_korean)

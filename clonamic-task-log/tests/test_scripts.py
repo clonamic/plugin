@@ -395,7 +395,8 @@ class RedactGateTests(unittest.TestCase):
 
 class GateTests(unittest.TestCase):
     RUN = {"metrics": [{"before": 120.0, "after": 80.0, "change_pct": -33.3}],
-           "progress": [{"feature": "결제 모듈", "pct": 65, "prev": 50}]}
+           "progress": [{"feature": "결제 모듈", "pct": 65, "prev": 50}],
+           "touched_features": ["결제 모듈"]}
     RESULT = {"date": DAY, "progress": [{"pct": 65}]}
 
     def entry(self, *swaps: tuple[str, str]) -> str:
@@ -451,6 +452,71 @@ class GateTests(unittest.TestCase):
         self.blocked("percent", ("약 65%", "약 99%"))
         self.blocked("percent", ("- 결제 요청 API를 새로 만들고", "- 성공률 97%로 결제 요청 API를 새로 만들고"))
         self.assertEqual(self.tokens(self.entry(("약 65%", "약 50%"))), [])  # previous value is allowed
+
+    def test_entry_over_40_non_empty_lines_blocks(self) -> None:
+        self.assertNotIn("length", self.tokens(self.entry()))
+        padding = "".join(f"- 문장 {i}\n" for i in range(30))
+        self.blocked("length", ("## 다음 할 일\n", "## 다음 할 일\n" + padding))
+        edge = self.entry().count("\n") and sum(1 for x in self.entry().splitlines() if x.strip())
+        extra = "".join(f"- 가{i}\n" for i in range(40 - edge))
+        self.assertNotIn("length", self.tokens(self.entry(("## 다음 할 일\n", "## 다음 할 일\n" + extra))))
+        self.blocked("length", ("## 다음 할 일\n", "## 다음 할 일\n" + extra + "- 하나 더\n"))
+
+    def test_field_line_over_220_characters_blocks(self) -> None:
+        long = "결제 요청을 처리했습니다. " * 20
+        self.blocked("field-length", ("- 한 일 — 요청 처리 흐름을 만들고 흐름 테스트를 추가했습니다.", "- 한 일 — " + long))
+        ok = "가" * 200
+        self.assertNotIn("field-length", self.tokens(self.entry(("- 한 일 — 요청 처리 흐름을 만들고 흐름 테스트를 추가했습니다.", "- 한 일 — " + ok))))
+
+    def test_others_line_allows_three_items_at_most(self) -> None:
+        base = ("- 결과 — 응답 시간이 120ms(측정)에서 80ms(측정)로 줄었습니다.\n",
+                "- 결과 — 응답 시간이 120ms(측정)에서 80ms(측정)로 줄었습니다.\n- 그 밖에 — {}\n")
+        for items in ("문서 보강, 시험 데이터 정리, 설정 분리", "문서 보강·시험 데이터 정리", "문서 보강"):
+            swap = (base[0], base[1].format(items))
+            self.assertNotIn("others", self.tokens(self.entry(swap)), items)
+        swap = (base[0], base[1].format("문서 보강, 시험 데이터 정리, 설정 분리, 오류 문구 정리"))
+        self.blocked("others", swap)
+        self.blocked("others", (base[0], base[1].format("가 · 나 · 다 · 라")))
+
+    def test_progress_rows_must_be_touched_features(self) -> None:
+        row = "| 결제 모듈 | 약 65% | 요청 처리 흐름 구성 | 환불 처리 |\n"
+        self.blocked("progress-untouched", (row, row + "| 환불 | 약 65% | 변화 | 시험 |\n"))
+        self.blocked("progress-untouched", ("요청 처리 흐름 구성", "오늘 손대지 않음"))
+        self.assertNotIn("progress-untouched", self.tokens(self.entry()))
+
+    def test_progress_section_not_required_when_nothing_was_touched(self) -> None:
+        text = self.entry()
+        head, rest = text.split("## 진행 상황")
+        text = head + "## 다음 할 일" + rest.split("## 다음 할 일")[1]
+        run = self.RUN | {"touched_features": []}
+        tokens = [b["token"] for b in gate.check(text, parse_profile(PROFILE), run)["blocked"]]
+        self.assertEqual(tokens, [])
+        run = self.RUN | {"touched_features": ["결제 모듈"]}
+        tokens = [b["token"] for b in gate.check(text, parse_profile(PROFILE), run)["blocked"]]
+        self.assertIn("section", tokens)
+
+    def test_repeated_todo_actions_block(self) -> None:
+        swap = ("- 환불 처리를 구현합니다.\n",
+                "- 결제 모듈 테스트 작성하기\n- 환불 모듈 테스트 작성하기\n")
+        self.blocked("todo-repeat", swap)
+        merged = ("- 환불 처리를 구현합니다.\n", "- 두 기능의 테스트 작성하기\n- 환불 처리 구현하기\n")
+        self.assertNotIn("todo-repeat", self.tokens(self.entry(merged)))
+        run = {**self.RUN, "progress": [{"feature": "결제 모듈", "pct": 65, "prev": 50},
+                                         {"feature": "환불 모듈", "pct": 10, "prev": 0}]}
+        text = self.entry(("- 환불 처리를 구현합니다.\n", "- 결제 모듈 테스트 작성하기\n- 환불 모듈 테스트 작성하기\n"))
+        self.assertIn("todo-repeat", [b["token"] for b in gate.check(text, parse_profile(PROFILE), run)["blocked"]])
+
+    def test_judgment_format_is_bold_choice_em_dash_reason(self) -> None:
+        section = "## 기술 판단\n- **요청을 한 흐름으로 묶음** — 실패 지점을 바로 찾을 수 있습니다.\n\n"
+        good = self.entry(("## 진행 상황", section + "## 진행 상황"))
+        self.assertEqual(self.tokens(good), [])
+        for bad in ("- 요청을 한 흐름으로 묶음 : 실패 지점을 찾습니다.", "- **요청을 묶음** : 이유입니다.",
+                    "- 요청을 한 흐름으로 묶음 — 이유입니다.", "- **요청을 묶음** - 이유입니다."):
+            text = self.entry(("## 진행 상황", f"## 기술 판단\n{bad}\n\n## 진행 상황"))
+            found = self.tokens(text)
+            self.assertTrue({"judgment-format", "judgment-colon"} & set(found), (bad, found))
+        colon = self.entry(("## 진행 상황", "## 기술 판단\n- **묶음** — 이유 : 설명입니다.\n\n## 진행 상황"))
+        self.assertIn("judgment-colon", self.tokens(colon))
 
     def test_missing_portfolio_sentence_blocks(self) -> None:
         text = self.entry().split("## 포트폴리오 문장")[0]
@@ -612,6 +678,43 @@ class WriteIsolationTests(unittest.TestCase):
         code, out = run(repo.path, "notion-set", "--kind", "day", "--id", "abc", "--date", DAY, "--title", DAY)
         self.assertEqual((code, out["status"]), (0, "recorded"))
         self.assertEqual(repo.state()["notion"]["days"][DAY]["id"], "abc")
+
+
+    def test_prepare_exposes_touched_features(self) -> None:
+        repo, result = self.prepared("shop")
+        self.assertEqual(result["touched_features"], ["결제 모듈"])
+        self.assertEqual(repo.run_file()["touched_features"], ["결제 모듈"])
+
+    def test_forget_removes_file_state_index_and_reports_notion_page(self) -> None:
+        repo, result = self.prepared("shop")
+        entry = self.draft(repo, entry_for(result))
+        self.assertEqual(run(repo.path, "write", "--entry", str(entry))[0], 0)
+        run(repo.path, "notion-set", "--kind", "day", "--id", "abc123", "--url", "https://www.notion.so/abc123",
+            "--date", DAY, "--title", DAY)
+        day_file = repo.path / f".claude/log-part/{DAY}.md"
+        self.assertTrue(day_file.is_file())
+        code, out = run(repo.path, "forget", "--date", DAY)
+        self.assertEqual((code, out["status"], out["file_removed"]), (0, "forgotten", True), out)
+        self.assertEqual(out["notion"]["id"], "abc123")
+        self.assertIn("https://www.notion.so/abc123", out["user_action"])
+        self.assertFalse(day_file.exists())
+        state = repo.state()
+        self.assertNotIn(DAY, state["days"])
+        self.assertNotIn(DAY, state["notion"].get("days", {}))
+        self.assertNotIn(f"[{DAY}]", (repo.path / ".claude/log-part/index.md").read_text(encoding="utf-8"))
+
+    def test_forget_unknown_date_is_an_error(self) -> None:
+        repo, _ = self.prepared("shop")
+        code, out = run(repo.path, "forget", "--date", "2026-01-01")
+        self.assertEqual((code, out["ok"]), (3, False))
+
+    def test_forget_without_notion_page_has_no_user_action(self) -> None:
+        repo, result = self.prepared("shop")
+        run(repo.path, "write", "--entry", str(self.draft(repo, entry_for(result))))
+        code, out = run(repo.path, "forget", "--date", DAY)
+        self.assertEqual(code, 0)
+        self.assertIsNone(out["notion"])
+        self.assertNotIn("user_action", out)
 
 
 class KoreanCommandTests(unittest.TestCase):
