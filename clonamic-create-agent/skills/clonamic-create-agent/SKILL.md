@@ -40,7 +40,7 @@ user-invocable: true
 `session`은 이 세션 동안 같은 값을 쓴다. 다른 세션이 같은 프로젝트를 열면 그쪽이 이어받는다(`replaced`).
 
 - **Claude Code**: Monitor로 `python3 "$SKILL_DIR/scripts/cagent.py" wait --project <번호> --session <session> --stream`을 `timeout_ms` 1800000으로 건다. 한 줄이 한 사건이다. Monitor가 시간이 다 되어 끝났고 마지막 상태가 `closed`, `idle`, `replaced`가 아니면 다시 건다.
-- **그 밖의 호스트**: `wait --project <번호> --session <session> --timeout <초>`를 반복 실행한다. Grok Build는 110초, Codex와 Cursor는 55초다. `timeout`이면 바로 다시 실행한다.
+- **그 밖의 호스트**: `wait --project <번호> --session <session> --timeout <초>`를 반복 실행한다. Grok Build와 Codex는 110초, Cursor는 55초다. `timeout`이면 바로 다시 실행한다.
 
 | 상태 | 할 일 |
 |---|---|
@@ -91,7 +91,7 @@ user-invocable: true
 
 ## 5. 마무리
 
-`closed`를 받으면 터미널에 한국어로 짧게 보고한다: 프로젝트 이름, 마지막으로 내보낸 경로(있으면), 아직 적용하지 않은 제안 수. 서버는 이미 스스로 꺼졌다. 데이터는 `~/.clonamic/create-agent/`에 남는다.
+`closed`를 받으면 터미널에 한국어로 짧게 보고한다: 프로젝트 이름, 마지막으로 내보낸 경로(있으면), 아직 적용하지 않은 제안 수. 서버는 사용자가 탭을 닫아 스스로 꺼졌으므로 `open`으로 다시 띄우지 않는다. 데이터는 `~/.clonamic/create-agent/`에 남고, 다음에 같은 명령으로 이어서 연다.
 
 ## 6. 하지 않는 것
 
