@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic Create Agent"
+  short_description: "Design an agent pipeline as a graph and export Korean design docs on an explicit command"
+  default_prompt: "Use $clonamic-create-agent to design an agent pipeline."
+policy:
+  allow_implicit_invocation: false

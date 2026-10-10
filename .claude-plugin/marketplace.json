@@ -11,6 +11,11 @@
       "description": "Evidence-based modular design: library-style modules with single responsibilities, explicit contracts, and migration order."
     },
     {
+      "name": "clonamic-create-agent",
+      "source": "./clonamic-create-agent",
+      "description": "Design an agent pipeline with the user as a two-level graph (agents, then steps) in a local web editor, review it objectively, and export implementation-neutral Korean design documents with one explicit /clonamic-create-agent command."
+    },
+    {
       "name": "clonamic-data",
       "source": "./clonamic-data",
       "description": "Dataset and Hugging Face workflow guidance: proportional pre-flight, streaming, validation, private publishing."

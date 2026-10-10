@@ -1,0 +1,20 @@
+{
+  "name": "clonamic-create-agent",
+  "version": "0.1.0",
+  "description": "Design an agent pipeline with the user as a two-level graph (agents, then steps) in a local web editor, review it objectively, and export implementation-neutral Korean design documents with one explicit /clonamic-create-agent command.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "repository": "https://github.com/clonamic/plugin",
+  "license": "MIT",
+  "keywords": [
+    "agent-design",
+    "pipeline",
+    "graph",
+    "documentation",
+    "korean"
+  ],
+  "dependencies": [
+    "clonamic-korean"
+  ]
+}
