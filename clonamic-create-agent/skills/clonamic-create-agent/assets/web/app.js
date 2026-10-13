@@ -5,16 +5,22 @@ const S = {
   schema: null, projects: [], pid: null, doc: null, version: 0, polished: false, exportPath: "", defaultPath: "",
   level: "agents", sel: null, dirty: false, saving: false, saveTimer: null, savedAt: 0,
   msgs: [], lastMsg: 0, tab: "doc", unread: false, aiSeen: null, draw: false, preview: false,
+  undo: [], redo: [], lastKey: null, lastAt: 0, issues: [], fitNext: true,
 };
 const $ = (id) => document.getElementById(id);
 let cy = null, eh = null;
 
 // ---------- api ----------
 async function api(method, path, body) {
-  const res = await fetch(path, {
-    method, headers: { "Content-Type": "application/json", "X-Clonamic": "1" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(path, {
+      method, headers: { "Content-Type": "application/json", "X-Clonamic": "1" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (_) {
+    return { ok: false, status: 0, data: { error: "편집기 서버에 연결할 수 없습니다." } };  // server stopped or page reloading
+  }
   let data = {};
   try { data = await res.json(); } catch (_) { /* empty body */ }
   return { ok: res.ok, status: res.status, data };
@@ -51,6 +57,69 @@ function layout(level) {
   return S.doc.layout[level];
 }
 
+// ---------- undo / redo ----------
+// Call before mutating S.doc. Typing in the same field within a short pause is one step.
+function snapshot(key = null) {
+  const now = Date.now();
+  if (key && key === S.lastKey && now - S.lastAt < 1200) { S.lastAt = now; return; }
+  S.lastKey = key; S.lastAt = now;
+  S.undo.push(JSON.stringify(S.doc));
+  if (S.undo.length > 100) S.undo.shift();
+  S.redo = [];
+  renderHistoryButtons();
+}
+function restore(from, to) {
+  if (!from.length) return;
+  to.push(JSON.stringify(S.doc));
+  S.doc = JSON.parse(from.pop());
+  S.lastKey = null;
+  if (S.level !== "agents" && !agentOf(S.level)) S.level = "agents";
+  if (S.sel && !selected()) S.sel = null;
+  markDirty();
+  renderAll();
+}
+const undo = () => restore(S.undo, S.redo);
+const redo = () => restore(S.redo, S.undo);
+function renderHistoryButtons() {
+  const u = $("btn-undo"), r = $("btn-redo");
+  if (u) u.disabled = !S.undo.length;
+  if (r) r.disabled = !S.redo.length;
+}
+
+function icon(d) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", d);
+  svg.append(path);
+  return svg;
+}
+
+// ---------- text measuring ----------
+// Explicit line breaks keep each box exactly as large as its text, so nothing spills or overlaps.
+const ctx2d = document.createElement("canvas").getContext("2d");
+function wrapText(text, max, font) {
+  ctx2d.font = font;
+  const lines = [];
+  for (const para of String(text).split("\n")) {
+    let line = "";
+    for (const word of para.split(/(\s+)/)) {
+      if (!word) continue;
+      if (ctx2d.measureText(line + word).width <= max) { line += word; continue; }
+      if (line.trim()) { lines.push(line.trim()); line = ""; }
+      for (const ch of word.trim()) {
+        if (ctx2d.measureText(line + ch).width > max && line) { lines.push(line); line = ""; }
+        line += ch;
+      }
+    }
+    lines.push(line.trim());
+  }
+  const width = Math.max(...lines.map((l) => ctx2d.measureText(l).width));
+  return { text: lines.join("\n"), width, count: lines.length };
+}
+const FONT = getComputedStyle(document.body).fontFamily;
+
 // ---------- modal ----------
 function modal(title, body, actions) {
   const box = $("modal").firstElementChild;
@@ -65,7 +134,8 @@ $("modal").addEventListener("keydown", (e) => { if (e.key === "Escape") closeMod
 
 // ---------- projects ----------
 async function loadProjects() {
-  const { data } = await api("GET", "/api/projects");
+  const { ok, data } = await api("GET", "/api/projects");
+  if (!ok) return;
   S.projects = data;
   const list = $("projects");
   list.replaceChildren(...data.map((p) => el("li", { class: p.id === S.pid ? "active" : null },
@@ -117,10 +187,12 @@ async function openProject(pid) {
   S.pid = pid; S.doc = data.doc; S.version = data.version; S.polished = data.polished;
   S.exportPath = data.export_path; S.defaultPath = data.default_path; S.aiSeen = data.ai_seen;
   S.level = "agents"; S.sel = null; S.msgs = []; S.lastMsg = 0; S.preview = false;
+  S.undo = []; S.redo = []; S.lastKey = null; S.fitNext = true;
   if (location.hash !== `#${pid}`) history.replaceState(null, "", `#${pid}`);
   loadProjects();
   await loadMessages();
   renderAll();
+  refreshIssues();
   setTab(S.doc.agents.length ? "doc" : "chat");
 }
 
@@ -140,6 +212,7 @@ async function save() {
   if (res.ok) {
     S.version = res.data.version; S.polished = false; S.savedAt = Date.now();
     setSave("저장됨 · 방금");
+    refreshIssues();
   } else if (res.status === 409) {
     await reloadDoc();
     setSave("다른 곳에서 바뀌어 최신 내용을 다시 불러왔습니다");
@@ -154,11 +227,33 @@ async function flushSave() { clearTimeout(S.saveTimer); await save(); }
 async function reloadDoc() {
   const { ok, data } = await api("GET", `/api/projects/${S.pid}`);
   if (!ok) return;
+  if (JSON.stringify(data.doc) !== JSON.stringify(S.doc)) snapshot();  // AI edits and applied cards can be undone too
   S.doc = data.doc; S.version = data.version; S.polished = data.polished; S.aiSeen = data.ai_seen;
   S.exportPath = data.export_path;
   if (S.level !== "agents" && !agentOf(S.level)) S.level = "agents";
   if (S.sel && !selected()) S.sel = null;
   renderAll();
+  refreshIssues();
+}
+async function refreshIssues() {
+  if (!S.pid) return;
+  const { ok, data } = await api("GET", `/api/projects/${S.pid}/check`);
+  if (ok) { S.issues = data.issues; renderIssueButton(); }
+}
+function renderIssueButton() {
+  const b = $("btn-issues");
+  if (!b) return;
+  b.textContent = S.issues.length ? `검사 ${S.issues.length}` : "검사 통과";
+  b.classList.toggle("warn", S.issues.length > 0);
+}
+function openIssues() {
+  modal("검사 결과", S.issues.length
+    ? [el("p", {}, `고칠 항목 ${S.issues.length}개입니다. 누르면 그 위치로 갑니다.`), issueList(S.issues)]
+    : [el("p", { class: "ok" }, "검사에 걸린 항목이 없습니다.")], [["닫기", closeModal]]);
+}
+function issueList(issues) {
+  return el("ul", { class: "issues" }, ...issues.map((i) => el("li", {},
+    el("button", { type: "button", on: { click: () => { closeModal(); goTo(i.target); } } }, i.message))));
 }
 setInterval(() => {
   if (S.savedAt && !S.dirty && !S.saving) {
@@ -189,7 +284,7 @@ const STYLE = () => {
   const v = (n) => css.getPropertyValue(n).trim();
   return [
     { selector: "node", style: {
-      shape: "rectangle", label: "data(label)", "text-wrap": "wrap", "text-max-width": 150, "text-valign": "center",
+      shape: "rectangle", label: "data(label)", "text-wrap": "wrap", "text-max-width": 1000, "text-valign": "center",
       "text-halign": "center", width: "data(w)", height: "data(h)", "font-size": 13, color: v("--text"),
       "background-color": v("--surface"), "border-width": 2, "border-color": "data(color)" } },
     { selector: "node.agent", style: { "background-color": "data(color)", color: "#ffffff", "border-width": 0, "font-weight": 600 } },
@@ -198,8 +293,9 @@ const STYLE = () => {
     { selector: "node.exit", style: { shape: "ellipse", "border-style": "double", "border-width": 4 } },
     { selector: "edge", style: {
       width: 2, "curve-style": "bezier", "control-point-step-size": 150, "target-arrow-shape": "triangle", "line-color": v("--muted"),
-      "target-arrow-color": v("--muted"), label: "data(label)", "font-size": 11, color: v("--text"),
-      "text-background-color": v("--canvas"), "text-background-opacity": 1, "text-background-padding": 2 } },
+      "target-arrow-color": v("--muted"), label: "data(label)", "font-size": 11, color: v("--text"), "text-wrap": "wrap",
+      "text-max-width": 1000, "text-background-color": v("--canvas"), "text-background-opacity": 1,
+      "text-background-padding": 3, "text-background-shape": "roundrectangle", "z-index": 2 } },
     { selector: "edge.cond", style: { "line-style": "dashed" } },
     { selector: ":selected", style: { "border-color": v("--accent"), "line-color": v("--accent"), "target-arrow-color": v("--accent"), "border-width": 4 } },
     { selector: ".hl", style: { "border-color": v("--hl"), "line-color": v("--hl"), "target-arrow-color": v("--hl"), "border-width": 5, width: 4 } },
@@ -210,13 +306,15 @@ const STYLE = () => {
 
 function elements() {
   const items = [];
-  // Fixed sizes from the label: Cytoscape's width "label" left some nodes reported hidden after a layout.
+  // Fixed sizes from measured, pre-wrapped labels (Cytoscape's width "label" marked some nodes hidden).
   const node = (id, label, cls, color) => {
-    const lines = label.split("\n");
-    const w = Math.max(64, Math.max(...lines.map((l) => [...l].reduce((n, c) => n + (c.charCodeAt(0) > 255 ? 14 : 8), 0))) + 28);
-    items.push({ group: "nodes", data: { id, label, color: color || "#8a93a3", w, h: lines.length * 18 + 22 }, classes: cls });
+    const bold = cls === "agent" ? "600 " : "";
+    const t = wrapText(label, 170, `${bold}13px ${FONT}`);
+    items.push({ group: "nodes", data: { id, label: t.text, color: color || "#8a93a3",
+      w: Math.max(64, Math.ceil(t.width) + 30), h: t.count * 17 + 24 }, classes: cls });
   };
-  const edge = (id, src, dst, label, cls) => items.push({ group: "edges", data: { id, source: src, target: dst, label }, classes: cls });
+  const edge = (id, src, dst, label, cls) => items.push({ group: "edges",
+    data: { id, source: src, target: dst, label: wrapText(label, 130, `11px ${FONT}`).text }, classes: cls });
   const a = curAgent();
   if (!a) {
     node("start", "시작", "terminal");
@@ -246,7 +344,7 @@ function renderGraph() {
       else select(curAgent() ? "step" : "agent", id);
     });
     cy.on("dbltap", "node.agent", (e) => enter(e.target.id()));
-    cy.on("dragfree", "node", () => { savePositions(); markDirty(); });
+    cy.on("dragfree", "node", () => { snapshot(); savePositions(); markDirty(); });
     eh = cy.edgehandles({ canConnect: canConnect, edgeParams: () => ({}), hoverDelay: 150, snap: true, noEdgeEventsInDraw: true });
     cy.on("ehcomplete", (e, src, dst, added) => { added.remove(); connect(src.id(), dst.id()); });
   }
@@ -256,13 +354,15 @@ function renderGraph() {
   let missing = false;
   cy.nodes().forEach((n) => { if (pos[n.id()]) n.position(pos[n.id()]); else missing = true; });
   if (missing) arrange(false);
-  else cy.fit(undefined, 40);
+  else if (S.fitNext) cy.fit(undefined, 40);
+  S.fitNext = false;
   if (S.sel) cy.$id(cyId(S.sel.kind, S.sel.id)).select();
 }
 
 function arrange(save = true) {
-  const run = cy.layout({ name: "dagre", rankDir: "TB", nodeSep: 50, rankSep: 70, fit: true, padding: 40 });
-  run.one("layoutstop", () => { savePositions(); if (save || S.doc) markDirty(); });
+  if (save) snapshot();
+  const run = cy.layout({ name: "dagre", rankDir: "TB", nodeSep: 70, rankSep: 90, edgeSep: 30, fit: true, padding: 40 });
+  run.one("layoutstop", () => { savePositions(); markDirty(); });
   run.run();
 }
 function savePositions() {
@@ -284,6 +384,7 @@ function canConnect(src, dst) {
 }
 
 function connect(src, dst) {
+  snapshot();
   const a = curAgent();
   if (!a) {
     let exit = "";
@@ -306,9 +407,19 @@ function connect(src, dst) {
     after("edge", e.id);
   }
 }
-function after(kind, id) { markDirty(); renderGraph(); select(kind, id); }
+function after(kind, id) {
+  markDirty();
+  renderGraph();
+  select(kind, id);
+  const n = cy.$id(cyId(kind, id));
+  if (n.length && n.isNode()) {
+    const p = n.position(), e = cy.extent();
+    if (p.x < e.x1 || p.x > e.x2 || p.y < e.y1 || p.y > e.y2) cy.fit(undefined, 40);  // keep the rest in view too
+  }
+}
 
-function enter(aid) { S.level = aid; S.sel = null; renderAll(); }
+function enter(aid) { S.level = aid; S.sel = null; S.fitNext = true; renderAll(); }
+function back() { S.level = "agents"; S.sel = null; S.fitNext = true; renderAll(); }
 
 // ---------- toolbar / crumb ----------
 function renderTop() {
@@ -320,21 +431,29 @@ function renderTop() {
   crumb.replaceChildren();
   const tools = $("tools");
   tools.replaceChildren();
+  $("actions").replaceChildren();
   if (!has) return;
   const a = curAgent();
-  crumb.append(a ? el("button", { type: "button", on: { click: () => { S.level = "agents"; S.sel = null; renderAll(); } } }, S.doc.name || "프로젝트")
+  crumb.append(a ? el("button", { type: "button", on: { click: back } }, S.doc.name || "프로젝트")
     : el("span", { text: `${S.doc.name || "프로젝트"} · 에이전트 지도` }));
   if (a) crumb.append(el("span", { text: "›" }), el("span", { text: `${a.id} ${a.name || ""}` }));
   const btn = (label, fn, extra = {}) => tools.append(el("button", { type: "button", on: { click: fn }, ...extra }, label));
-  if (!a) btn("+ 에이전트", addAgent);
-  else { btn("+ 단계", addStep); btn("+ 출구", addExit); }
-  btn("연결 그리기", toggleDraw, { "aria-pressed": S.draw ? "true" : "false", title: "켜면 노드에서 노드로 끌어 연결합니다" });
-  btn("자동 정렬", () => arrange(true));
-  btn("프로젝트 문서", () => select("project", ""));
+  const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
+  tools.append(el("button", { type: "button", id: "btn-undo", class: "icon", title: `되돌리기 (${mod}Z)`, "aria-label": "되돌리기", on: { click: undo } }, icon("M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3")),
+    el("button", { type: "button", id: "btn-redo", class: "icon", title: `다시 실행 (${mod}Shift+Z)`, "aria-label": "다시 실행", on: { click: redo } }, icon("m15 14 5-5-5-5M20 9H10a6 6 0 0 0 0 12h3")));
+  if (!a) btn("+ 에이전트", addAgent, { class: "gap" });
+  else { btn("+ 단계", addStep, { class: "gap" }); btn("+ 출구", addExit); }
+  btn("연결 그리기", toggleDraw, { "aria-pressed": S.draw ? "true" : "false", title: "켜고 노드에서 노드로 끌어 연결합니다. Esc로 끕니다" });
+  btn("자동 정렬", () => arrange(true), { class: "gap", title: "배치를 새로 계산합니다" });
+  btn("화면 맞춤", () => cy.fit(undefined, 40), { title: "배치는 그대로 두고 전체가 보이게 합니다" });
+  btn("프로젝트 문서", () => select("project", ""), { class: "gap" });
   btn("용어 사전", () => select("glossary", ""));
-  btn("내보내기", openExport, { class: "primary" });
+  $("actions").append(el("button", { type: "button", id: "btn-issues", on: { click: openIssues } }, "검사"),
+    el("button", { type: "button", class: "primary", on: { click: openExport } }, "내보내기"));
+  renderHistoryButtons();
+  renderIssueButton();
 }
-$("project-name").addEventListener("input", (e) => { S.doc.name = e.target.value; markDirty(); renderCrumbOnly(); });
+$("project-name").addEventListener("input", (e) => { snapshot("project-name"); S.doc.name = e.target.value; markDirty(); renderCrumbOnly(); });
 function renderCrumbOnly() {
   const first = $("crumb").firstElementChild;
   if (first) first.textContent = curAgent() ? S.doc.name || "프로젝트" : `${S.doc.name || "프로젝트"} · 에이전트 지도`;
@@ -346,6 +465,7 @@ function toggleDraw() {
 }
 
 function addAgent() {
+  snapshot();
   const id = nextId(S.doc.agents, "A");
   const color = S.schema.colors[S.doc.agents.length % S.schema.colors.length];
   S.doc.agents.push({ id, name: "새 에이전트", color, role: "", intent: "", not_doing: "", exits: [{ name: "완료", when: "" }],
@@ -354,6 +474,7 @@ function addAgent() {
   after("agent", id);
 }
 function addStep() {
+  snapshot();
   const a = curAgent();
   const id = nextId(a.steps, "N");
   a.steps.push({ id, name: "새 단계", type: "처리", summary: "", intent: "", does: [], inputs: [], outputs: [], tools: [],
@@ -362,6 +483,7 @@ function addStep() {
   after("step", id);
 }
 function addExit() {
+  snapshot();
   const a = curAgent();
   let n = a.exits.length + 1, name = `출구${n}`;
   while (a.exits.some((x) => x.name === name)) name = `출구${++n}`;
@@ -370,8 +492,11 @@ function addExit() {
   after("exit", name);
 }
 function placeNew(id) {
+  // Below everything already on the canvas, so a new node never lands on top of another one.
+  const box = cy.nodes().length ? cy.nodes().boundingBox() : null;
   const ext = cy.extent();
-  layout(S.level)[id] = { x: Math.round((ext.x1 + ext.x2) / 2), y: Math.round(ext.y2 - 60) };
+  layout(S.level)[id] = box ? { x: Math.round((box.x1 + box.x2) / 2), y: Math.round(box.y2 + 80) }
+    : { x: Math.round((ext.x1 + ext.x2) / 2), y: Math.round((ext.y1 + ext.y2) / 2) };
 }
 
 // ---------- selection & delete ----------
@@ -395,10 +520,12 @@ function selected() {
   return null;
 }
 function removeSelected() {
+  snapshot();
   const { kind, id } = S.sel, a = curAgent();
   if (kind === "agent") {
     S.doc.agents = S.doc.agents.filter((x) => x.id !== id);
     S.doc.links = S.doc.links.filter((l) => l.from !== id && l.to !== id);
+    if (S.doc.layout) delete S.doc.layout[id];
   } else if (kind === "link") S.doc.links = S.doc.links.filter((x) => x.id !== id);
   else if (kind === "step") {
     a.steps = a.steps.filter((x) => x.id !== id);
@@ -406,8 +533,7 @@ function removeSelected() {
   } else if (kind === "edge") a.edges = a.edges.filter((x) => x.id !== id);
   else if (kind === "exit") {
     a.exits = a.exits.filter((x) => x.name !== id);
-    a.edges = a.edges.filter((e) => e.to !== `exit:${id}`);
-    S.doc.links = S.doc.links.filter((l) => !(l.from === a.id && l.exit === id));
+    dropExit(a, id);
   } else return;
   delete layout(S.level)[cyId(kind, id)];
   S.sel = null;
@@ -420,6 +546,12 @@ function askRemove() {
 }
 document.addEventListener("keydown", (e) => {
   const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  if (!typing && $("modal").hidden && S.doc && (e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z" || e.key === "y")) {
+    e.preventDefault();
+    if (e.shiftKey || e.key === "y") redo(); else undo();
+    return;
+  }
+  if (!typing && $("modal").hidden && e.key === "Escape" && S.draw) { toggleDraw(); return; }
   if (!typing && $("modal").hidden && (e.key === "Delete" || e.key === "Backspace") && S.sel && !["project", "glossary"].includes(S.sel.kind)) {
     e.preventDefault();
     askRemove();
@@ -462,7 +594,12 @@ function renderDoc() {
   const panel = $("panel-doc");
   const obj = selected();
   if (!obj) {
-    panel.replaceChildren(el("p", { class: "muted" }, S.doc ? "노드나 연결을 클릭하면 문서가 열립니다. 위의「프로젝트 문서」로 전체 문서를 엽니다." : ""));
+    panel.replaceChildren(S.doc ? el("ul", { class: "hint-list muted" },
+      el("li", {}, "노드나 연결을 누르면 그 문서가 열립니다."),
+      el("li", {}, "에이전트를 두 번 누르면 안의 단계로 들어갑니다."),
+      el("li", {}, "「연결 그리기」를 켜고 노드에서 노드로 끌면 연결이 생깁니다. Esc로 끕니다."),
+      el("li", {}, "「프로젝트 문서」와「용어 사전」은 위 버튼으로 엽니다."),
+      el("li", {}, "되돌리기는 ⌘Z(Windows는 Ctrl+Z), 다시 실행은 ⇧⌘Z입니다.")) : "");
     return;
   }
   const kind = S.sel.kind;
@@ -490,7 +627,10 @@ function renderDoc() {
     kids.push(fieldEl(kind, obj, field));
   }
   panel.replaceChildren(...kids);
+  fitAreas();
 }
+function fitAreas() { requestAnimationFrame(() => $("panel-doc").querySelectorAll("textarea").forEach(autosize)); }
+function autosize(t) { t.style.height = "auto"; t.style.height = `${t.scrollHeight + 2}px`; }
 function togglePreview() { S.preview = !S.preview; renderDoc(); }
 
 function changed(kind, obj, key) {
@@ -504,24 +644,34 @@ function changed(kind, obj, key) {
   }
 }
 function renameExit(obj) {
-  const a = curAgent(), old = S.sel.id, now = obj.name;
-  if (!a || old === now) return;
+  const a = curAgent();
+  if (!a) return;
+  moveExit(a, S.sel.id, obj.name);
+  S.sel.id = obj.name;
+}
+// An exit's name is referenced by edges inside its agent and by the agent-level link leaving through it.
+function moveExit(a, old, now) {
+  if (old === now) return;
   a.edges.forEach((e) => { if (e.to === `exit:${old}`) e.to = `exit:${now}`; });
   S.doc.links.forEach((l) => { if (l.from === a.id && l.exit === old) l.exit = now; });
-  const pos = layout(S.level);
-  if (pos[`exit:${old}`]) { pos[`exit:${now}`] = pos[`exit:${old}`]; delete pos[`exit:${old}`]; }
-  S.sel.id = now;
+  const pos = S.doc.layout?.[a.id];
+  if (pos?.[`exit:${old}`]) { pos[`exit:${now}`] = pos[`exit:${old}`]; delete pos[`exit:${old}`]; }
+}
+function dropExit(a, name) {
+  a.edges = a.edges.filter((e) => e.to !== `exit:${name}`);
+  S.doc.links = S.doc.links.filter((l) => !(l.from === a.id && l.exit === name));
+  if (S.doc.layout?.[a.id]) delete S.doc.layout[a.id][`exit:${name}`];
 }
 
 function fieldEl(kind, obj, [key, label, type, required, extra]) {
   const id = `f-${key}`;
   const lab = el("label", { for: id }, label, required ? el("span", { class: "req" }, " *") : null);
-  const set = (v) => { obj[key] = v; changed(kind, obj, key); };
+  const set = (v) => { snapshot(`${kind}:${obj.id || obj.name || ""}:${key}`); obj[key] = v; changed(kind, obj, key); };
   let input;
   if (type === "line") input = el("input", { id, value: obj[key] ?? "", on: { input: (e) => set(e.target.value) } });
-  else if (type === "text") input = el("textarea", { id, rows: 3, on: { input: (e) => set(e.target.value) } }, obj[key] ?? "");
+  else if (type === "text") input = el("textarea", { id, rows: 2, on: { input: (e) => { autosize(e.target); set(e.target.value); } } }, obj[key] ?? "");
   else if (type === "lines") {
-    input = el("textarea", { id, rows: 4, on: { input: (e) => set(e.target.value.split("\n").map((x) => x.trim()).filter(Boolean)) } }, (obj[key] || []).join("\n"));
+    input = el("textarea", { id, rows: 2, on: { input: (e) => { autosize(e.target); set(e.target.value.split("\n").map((x) => x.trim()).filter(Boolean)); } } }, (obj[key] || []).join("\n"));
     lab.append(el("span", { class: "hint" }, " 한 줄에 하나"));
   } else if (type === "names") {
     input = el("input", { id, list: "names", value: (obj[key] || []).join(", "),
@@ -551,14 +701,29 @@ function fieldEl(kind, obj, [key, label, type, required, extra]) {
 
 function tableEl(kind, obj, key, cols) {
   const rows = obj[key] = obj[key] || [];
-  const wrap = el("div", { class: "grid-table" });
+  const exits = kind === "agent" && key === "exits";  // exit names are referenced by edges and links
+  const wrap = el("div", { class: "grid-table", style: `--cols: ${cols.length}` });
   const draw = () => {
     wrap.replaceChildren(
       el("div", { class: "tr head" }, ...cols.map(([, l]) => el("span", { text: l })), el("span", { class: "x" })),
       ...rows.map((row, i) => el("div", { class: "tr" },
-        ...cols.map(([c, l]) => el("textarea", { rows: 1, "aria-label": l, on: { input: (e) => { row[c] = e.target.value; changed(kind, obj, key); } } }, row[c] ?? "")),
-        el("button", { type: "button", class: "x", "aria-label": "행 삭제", on: { click: () => { rows.splice(i, 1); changed(kind, obj, key); draw(); } } }, "×"))),
-      el("button", { type: "button", on: { click: () => { rows.push(Object.fromEntries(cols.map(([c]) => [c, ""]))); changed(kind, obj, key); draw(); } } }, "+ 행 추가"));
+        ...cols.map(([c, l]) => el("textarea", { rows: 1, "aria-label": l, on: { input: (e) => {
+          snapshot(`${kind}:${obj.id}:${key}:${i}:${c}`);
+          const old = row[c];
+          row[c] = e.target.value;
+          if (exits && c === "name") moveExit(obj, old, row[c]);
+          autosize(e.target);
+          changed(kind, obj, exits && c === "name" ? "name" : key);
+        } } }, row[c] ?? "")),
+        el("button", { type: "button", class: "x", "aria-label": "행 삭제", on: { click: () => {
+          snapshot();
+          const [gone] = rows.splice(i, 1);
+          if (exits) dropExit(obj, gone.name);
+          changed(kind, obj, exits ? "name" : key);
+          draw();
+        } } }, "×"))),
+      el("button", { type: "button", on: { click: () => { snapshot(); rows.push(Object.fromEntries(cols.map(([c]) => [c, ""]))); changed(kind, obj, key); draw(); } } }, "+ 행 추가"));
+    fitAreas();
   };
   draw();
   return wrap;
@@ -572,6 +737,7 @@ function setTab(tab) {
   $("panel-doc").hidden = tab !== "doc";
   $("panel-chat").hidden = tab !== "chat";
   if (tab === "chat") { S.unread = false; $("unread").hidden = true; scrollChat(); }
+  if (tab === "doc") fitAreas();
 }
 $("tab-doc").addEventListener("click", () => setTab("doc"));
 $("tab-chat").addEventListener("click", () => setTab("chat"));
@@ -579,7 +745,8 @@ $("tab-chat").addEventListener("click", () => setTab("chat"));
 // ---------- chat ----------
 async function loadMessages() {
   if (!S.pid) return;
-  const { data } = await api("GET", `/api/projects/${S.pid}/messages`);
+  const { ok, data } = await api("GET", `/api/projects/${S.pid}/messages`);
+  if (!ok) return;
   const fresh = data.filter((m) => m.id > S.lastMsg);
   S.msgs = data;
   S.lastMsg = data.length ? data[data.length - 1].id : 0;
@@ -641,7 +808,7 @@ function renderAiState() {
   const box = $("ai-state");
   const on = S.aiSeen !== null && S.aiSeen < 150;
   box.className = on ? "" : "off";
-  box.textContent = on ? "AI가 대기 중입니다." : "AI가 대기하고 있지 않습니다. 보낸 메시지는 쌓였다가, 터미널에서 '계속'이라고 입력하면 처리됩니다.";
+  box.textContent = on ? "AI가 대기 중입니다." : "AI가 대기하고 있지 않습니다. 보낸 메시지는 쌓였다가, 터미널에서 /clonamic-create-agent를 다시 실행하면 이어서 처리됩니다.";
 }
 setInterval(async () => {
   if (!S.pid) return;
@@ -669,10 +836,10 @@ async function openExport() {
   const result = el("div");
   const check = async () => {
     result.replaceChildren(el("p", { class: "muted" }, "검사 중…"));
-    const { data } = await api("GET", `/api/projects/${S.pid}/check`);
+    const { ok, data } = await api("GET", `/api/projects/${S.pid}/check`);
+    if (!ok) { result.replaceChildren(el("p", { class: "issues" }, data.error)); return false; }
     if (data.issues.length) {
-      result.replaceChildren(el("p", {}, `검사에 걸린 항목 ${data.issues.length}개를 먼저 고치세요.`),
-        el("ul", { class: "issues" }, ...data.issues.map((i) => el("li", {}, el("button", { type: "button", on: { click: () => { closeModal(); goTo(i.target); } } }, i.message)))));
+      result.replaceChildren(el("p", {}, `검사에 걸린 항목 ${data.issues.length}개를 먼저 고치세요.`), issueList(data.issues));
       return false;
     }
     const plan = await api("POST", `/api/projects/${S.pid}/export`, { path: input.value, dry: true });
@@ -710,16 +877,36 @@ async function openExport() {
 function goTo(target) {
   if (target === "project") return select("project", "");
   const m = /^(A\d+)(?:-(N\d+|L\d+))?$/.exec(target);
-  if (/^L\d+$/.test(target)) { S.level = "agents"; renderAll(); return select("link", target); }
+  if (/^L\d+$/.test(target)) { back(); return select("link", target); }
   if (!m) return;
-  if (!m[2]) { S.level = "agents"; renderAll(); return select("agent", m[1]); }
-  S.level = m[1];
-  renderAll();
+  if (!m[2]) { back(); return select("agent", m[1]); }
+  enter(m[1]);
   select(m[2].startsWith("N") ? "step" : "edge", m[2]);
 }
 
 // ---------- boot ----------
 function renderAll() { renderTop(); renderGraph(); renderDoc(); renderChat(); }
+// ---------- right panel width ----------
+function setRightWidth(px) {
+  const w = Math.max(320, Math.min(760, Math.round(px)));
+  document.documentElement.style.setProperty("--right-w", `${w}px`);
+  if (cy) cy.resize();
+  return w;
+}
+try { const saved = parseInt(localStorage.getItem("cagent-right-w"), 10); if (saved) setRightWidth(saved); } catch (_) { /* storage off */ }
+$("resizer").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  const move = (ev) => setRightWidth(window.innerWidth - ev.clientX);
+  const up = (ev) => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    try { localStorage.setItem("cagent-right-w", String(setRightWidth(window.innerWidth - ev.clientX))); } catch (_) { /* storage off */ }
+    fitAreas();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+});
+
 async function boot() {
   S.schema = (await api("GET", "/api/schema")).data;
   await loadProjects();

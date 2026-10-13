@@ -4,7 +4,7 @@
   wait --project ID --session S [--timeout 55] [--stream] next chat message from the web page
   get --project ID                                       current document and version
   put --project ID --version V [--note T --why T --affected T] < doc.json
-  say --project ID < text                                AI chat reply (markdown)
+  say --project ID < text                                AI chat reply (plain text, no markdown)
   propose --project ID < card.json                       proposal card {title, criterion, reason, targets, changes, effect, doc, base_version, kind}
   check --project ID                                     pre-export checks
   korean [--check] [< text]                              locate clonamic-korean, or run its checker on text
@@ -131,7 +131,7 @@ def cmd_wait(args) -> None:
         if data.get("status") == "message":
             data["message"] = trim(data["message"])
         out(data)
-        if not args.stream or data.get("status") in ("closed", "replaced", "idle"):
+        if not args.stream or data.get("status") in ("closed", "replaced"):
             return
 
 

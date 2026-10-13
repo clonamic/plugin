@@ -27,7 +27,6 @@ VERSION = "0.1.0"
 APP = "clonamic-create-agent"
 WEB = Path(__file__).resolve().parent.parent / "assets" / "web"
 TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".json": "application/json", ".svg": "image/svg+xml"}
-IDLE_NOTICE = "AI 대기 멈춤 — 터미널에서 '계속'이라고 입력하세요."
 
 
 def today() -> str:
@@ -35,8 +34,8 @@ def today() -> str:
 
 
 class App:
-    def __init__(self, store: Store, grace: float = 10.0, first: float = 180.0, idle: float = 1800.0):
-        self.store, self.grace, self.first, self.idle = store, grace, first, idle
+    def __init__(self, store: Store, grace: float = 10.0, first: float = 180.0):
+        self.store, self.grace, self.first = store, grace, first
         self.cond = threading.Condition()
         self.events: deque = deque(maxlen=200)
         self.seq = 0
@@ -44,7 +43,6 @@ class App:
         self.ever = False
         self.closing = False
         self.tokens: dict[int, str] = {}
-        self.activity: dict[int, float] = {}
         self.seen: dict[int, float] = {}
 
     def emit(self, kind: str, pid: int) -> None:
@@ -74,10 +72,9 @@ class App:
                 return
 
     def wait(self, pid: int, token: str, timeout: float) -> dict:
+        """Next unhandled message. Ends only with a message, a timeout (call again), closed, or replaced."""
         with self.cond:
-            if self.tokens.get(pid) != token:
-                self.tokens[pid] = token
-                self.activity[pid] = time.time()
+            self.tokens[pid] = token
         deadline = time.time() + timeout
         while True:
             with self.cond:
@@ -89,12 +86,6 @@ class App:
             msg = self.store.take(pid)
             if msg:
                 return {"status": "message", "message": msg}
-            if time.time() - self.activity.get(pid, time.time()) >= self.idle:
-                self.store.add_message(pid, "system", "notice", {"text": IDLE_NOTICE})
-                self.emit("message", pid)
-                with self.cond:
-                    self.tokens.pop(pid, None)
-                return {"status": "idle"}
             left = deadline - time.time()
             if left <= 0:
                 return {"status": "timeout"}
@@ -242,9 +233,6 @@ def make_handler(app: App):
                     return self.send(400, {"error": "role"})
                 status = "new" if role == "user" else ""
                 mid = store.add_message(pid, role, "text", {"text": data.get("text", "")}, status)
-                if role == "user":
-                    with app.cond:
-                        app.activity[pid] = time.time()
                 app.emit("message", pid)
                 return self.send(201, {"id": mid})
             if method == "POST" and rest == ["cards"]:
@@ -354,8 +342,8 @@ def make_handler(app: App):
     return Handler
 
 
-def serve(port: int, grace: float = 10.0, first: float = 180.0, idle: float = 1800.0, store: Store | None = None):
-    app = App(store or Store(), grace, first, idle)
+def serve(port: int, grace: float = 10.0, first: float = 180.0, store: Store | None = None):
+    app = App(store or Store(), grace, first)
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
     server.daemon_threads = True
     threading.Thread(target=app.watch, args=(server,), daemon=True).start()
@@ -367,9 +355,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--grace", type=float, default=10.0)
     parser.add_argument("--first", type=float, default=180.0)
-    parser.add_argument("--idle", type=float, default=1800.0)
     args = parser.parse_args()
-    server, _ = serve(args.port, args.grace, args.first, args.idle)
+    server, _ = serve(args.port, args.grace, args.first)
     server.serve_forever()
 
 

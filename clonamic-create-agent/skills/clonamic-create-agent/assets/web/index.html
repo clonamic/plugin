@@ -25,6 +25,7 @@
     <div class="title-row">
       <input id="project-name" aria-label="프로젝트 이름" placeholder="프로젝트 이름" disabled>
       <span id="save-state" aria-live="polite"></span>
+      <div id="actions" class="row"></div>
     </div>
     <nav id="crumb" aria-label="위치"></nav>
     <div id="tools" class="row"></div>
@@ -34,6 +35,7 @@
 </main>
 
 <aside id="right">
+  <div id="resizer" role="separator" aria-orientation="vertical" aria-label="패널 폭 조절" title="끌어서 폭 조절"></div>
   <div class="tabs" role="tablist">
     <button id="tab-doc" role="tab" aria-selected="true" type="button">문서</button>
     <button id="tab-chat" role="tab" aria-selected="false" type="button">검토 <span id="unread" hidden>•</span></button>
