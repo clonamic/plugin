@@ -6,7 +6,7 @@ FORMAT = 1
 STEP_TYPES = ["판단", "처리", "외부 연동", "사람 확인"]
 EDGE_KINDS = {"always": "항상", "cond": "조건"}
 JUDGES = ["정해진 규칙", "AI 판단", "사람"]
-COLORS = ["#4C78A8", "#F58518", "#54A24B", "#B279A2", "#E45756", "#72B7B2", "#9D755D", "#EECA3B"]
+COLORS = ["#0066CC", "#B34700", "#1E7B3C", "#7A3FC4", "#C0262D", "#0E7480", "#8A5A2B", "#A21C6B"]  # white text >= 4.5:1
 
 # (key, label, kind, required, extra). kind: line | text | lines | names | table | select | ref | exit | color
 PROJECT = [

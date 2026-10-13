@@ -3,17 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>에이전트 설계 편집기</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<aside id="left">
+<aside id="left" aria-label="프로젝트">
   <div class="left-head">
-    <strong>프로젝트</strong>
+    <h1 class="app-title">프로젝트</h1>
     <div class="row">
-      <button id="new-project" type="button">새 프로젝트</button>
-      <button id="import-project" type="button">가져오기</button>
+      <button id="new-project" type="button" class="primary small">새 프로젝트</button>
+      <button id="import-project" type="button" class="small">가져오기</button>
       <input id="import-file" type="file" accept=".json,application/json" hidden>
     </div>
   </div>
@@ -28,25 +29,31 @@
       <div id="actions" class="row"></div>
     </div>
     <nav id="crumb" aria-label="위치"></nav>
-    <div id="tools" class="row"></div>
   </header>
-  <div id="cy" aria-label="설계 캔버스"></div>
+  <div id="stage">
+    <div id="cy" tabindex="0" aria-label="설계 캔버스. +와 -로 확대·축소, 0으로 화면 맞춤"></div>
+    <div id="cards" aria-hidden="true"><div id="cards-inner"></div></div>
+    <div id="tools" class="float capsule" role="toolbar" aria-label="캔버스 도구"></div>
+    <div id="zoom" class="float stack" role="toolbar" aria-label="확대와 축소"></div>
+    <div id="history" class="float capsule" role="toolbar" aria-label="되돌리기"></div>
+    <div id="canvas-empty" class="float empty-card" hidden></div>
+  </div>
   <div id="empty" class="empty">왼쪽에서 프로젝트를 고르거나 새로 만드세요.</div>
 </main>
 
-<aside id="right">
+<aside id="right" aria-label="문서와 검토">
   <div id="resizer" role="separator" aria-orientation="vertical" aria-label="패널 폭 조절" title="끌어서 폭 조절"></div>
-  <div class="tabs" role="tablist">
+  <div class="segmented" role="tablist" aria-label="오른쪽 패널">
     <button id="tab-doc" role="tab" aria-selected="true" type="button">문서</button>
-    <button id="tab-chat" role="tab" aria-selected="false" type="button">검토 <span id="unread" hidden>•</span></button>
+    <button id="tab-chat" role="tab" aria-selected="false" type="button">검토 <span id="unread" class="dot" hidden aria-label="새 메시지"></span></button>
   </div>
-  <section id="panel-doc" role="tabpanel"></section>
-  <section id="panel-chat" role="tabpanel" hidden>
-    <div id="ai-state"></div>
+  <section id="panel-doc" role="tabpanel" aria-labelledby="tab-doc"></section>
+  <section id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden>
+    <div id="ai-state" role="status"></div>
     <div id="messages"></div>
     <form id="chat-form">
-      <textarea id="chat-input" rows="3" placeholder="설계에 대해 묻거나 검토를 요청하세요. Enter 보내기, Shift+Enter 줄바꿈"></textarea>
-      <button type="submit">보내기</button>
+      <textarea id="chat-input" rows="2" aria-label="검토 메시지" placeholder="설계에 대해 묻거나 검토를 요청하세요"></textarea>
+      <button type="submit" class="primary">보내기</button>
     </form>
   </section>
 </aside>
