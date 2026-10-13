@@ -97,7 +97,8 @@ def render(doc: dict, changelog: list[dict], date: str, polished: bool) -> dict[
     agents = by_id(doc.get("agents", []))
     links = by_id(doc.get("links", []))
     files = {"README.md": _project(doc, p, agents, links, date, polished),
-             "GLOSSARY.md": _glossary(doc), "CHANGELOG.md": _changelog(changelog)}
+             "GLOSSARY.md": _glossary(doc), "CHANGELOG.md": _changelog(changelog),
+             "IMPLEMENTATION.md": _implementation(doc, p, agents, links)}
     for link in links:
         files[p.link(link)] = _link(doc, p, link, links)
     for a in agents:
@@ -144,7 +145,8 @@ def _cond_text(item: dict) -> str:
 def _project(doc, p, agents, links, date, polished) -> str:
     src = "README.md"
     head = f"> {WARNING} 내보낸 날짜 {date}" + ("" if polished else " · 다듬기 미적용")
-    out = [f"# {doc.get('name', '')}", head, "", doc.get("summary", "")]
+    out = [f"# {doc.get('name', '')}", head, "", doc.get("summary", ""), "",
+           f"구현은 {md_link('구현 순서', src, 'IMPLEMENTATION.md')}를 따라 데이터 구조 → 도구 → 단계 순서로 한다."]
     need = [f"- 요구사항: {doc.get('want', '').strip()}"]
     if doc.get("background", "").strip():
         need.append(f"- 배경: {doc['background'].strip()}")
@@ -388,6 +390,47 @@ def _glossary(doc) -> str:
                                          *table(["필드", "형식", "필수", "설명", "예"],
                                                 [[f.get("name"), f.get("type"), "예" if f.get("required", True) else "아니오",
                                                   f.get("desc"), f.get("example")] for f in fields])])
+    return "\n".join(out)
+
+
+def flow_order(nodes: list[str], pairs: list[tuple[str, str]]) -> list[str]:
+    """Nodes in the order the flow reaches them from start (breadth first, links back to earlier nodes ignored);
+    nodes the flow never reaches come last in id order."""
+    order, seen, todo = [], {START}, [START]
+    while todo:
+        node = todo.pop(0)
+        for u, v in pairs:
+            if u == node and v not in seen and v in nodes:
+                seen.add(v)
+                order.append(v)
+                todo.append(v)
+    return order + [n for n in nodes if n not in seen]
+
+
+def _implementation(doc, p, agents, links) -> str:
+    """One page that tells an implementer where to start and in which order to build and test."""
+    src = "IMPLEMENTATION.md"
+    out = ["# 구현 순서", "", "위에서 아래로 만든다. 단계마다 예시를 첫 테스트로 쓰고, 완료 기준을 통과하면 다음으로 간다."]
+    data = [g for g in doc.get("glossary", []) if g.get("name")]
+    section(out, "1. 데이터 구조", table(["데이터", "구조"], [[md_link(g["name"], src, "GLOSSARY.md"), _shape(doc, g["name"])] for g in data]))
+    section(out, "2. 도구 준비", table(["번호", "종류", "이름", "위치·접속"],
+                                    [[t.get("id"), t.get("kind"), tool_name(doc, t), t.get("location")] for t in doc.get("tools", [])]))
+    order = flow_order([a["id"] for a in agents], [(x.get("from", ""), x.get("to", "")) for x in links])
+    body = []
+    for n, aid in enumerate(order, 1):
+        a = find(agents, aid)
+        steps = flow_order([s["id"] for s in a.get("steps", [])], [(e.get("from", ""), e.get("to", "")) for e in a.get("edges", [])])
+        body += ["", f"### 3.{n} {md_link(a['id'] + ' ' + a.get('name', ''), src, p.agent(a))}", ""]
+        body += table(["순서", "단계", "유형", "input → output", "첫 테스트(예시)", "완료 기준"],
+                      [[i, md_link(f"{full(a, sid)} {s.get('name', '')}", src, p.step(a, s)), s.get("type"),
+                        f"{', '.join(s.get('inputs', []))} → {', '.join(s.get('outputs', []))}", s.get("example"),
+                        "; ".join(x for x in s.get("done", []) if x.strip())]
+                       for i, sid in enumerate(steps, 1) for s in [find(a.get("steps", []), sid)]])
+    section(out, "3. 에이전트와 단계", body[1:])
+    section(out, "4. 전체 검증", table(["시나리오", "input", "경로", "기대 결과"],
+                                   [[r.get("name"), r.get("input"), r.get("path"), r.get("expected")] for r in doc.get("scenarios", [])]))
+    if [x for x in doc.get("open", []) if x.strip()]:
+        section(out, "5. 구현 전에 정할 것", [f"- [ ] {x}" for x in doc["open"] if x.strip()])
     return "\n".join(out)
 
 

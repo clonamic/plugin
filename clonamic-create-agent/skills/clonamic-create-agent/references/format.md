@@ -58,4 +58,7 @@ Rules the checks enforce (see `cagent.py check`):
 - `tools`: every referenced id exists, every catalog tool has a name and is used by a step or process item, an internal-agent tool points at an existing agent.
 - Data: every step `inputs` name is produced somewhere (a project input or a step output); every output is consumed (a step input, an edge/link `passes`, or a project output).
 - Data dictionary: every data name used anywhere is in `glossary` with at least one field that has a name and a type. Names that differ only by spacing or case are flagged as the same name.
+- Process chain: when process rows name their input/output, a row may only use a data name the step receives or an earlier row made, and every step output must come out of some row (free text that is not a data name is not checked).
+- Step kinds: a 판단 step uses a tool of kind `모델`; a 사람 확인 step is listed in `human_points` (as `A1-N3`).
+- Scenario paths: every number written in a scenario `path` (A1, L2, A1-N3, A1-L4) exists.
 - Process names and tool locations may be implementation names (files, modules, classes, functions, endpoints); every other field stays in plain language.

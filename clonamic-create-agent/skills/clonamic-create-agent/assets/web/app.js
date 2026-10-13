@@ -1240,7 +1240,8 @@ let toastTimer = null;
 // The undo button undoes the toast's own action only: after any later edit it disappears.
 function toast(text, withUndo = true) {
   const box = $("toast"), mark = S.undo.length;
-  box.replaceChildren(el("span", {}, text), withUndo ? el("button", { type: "button", on: { click: () => { if (S.undo.length === mark) undo(); box.hidden = true; } } }, "되돌리기") : null);
+  box.replaceChildren();
+  add(box, el("span", {}, text), withUndo ? el("button", { type: "button", on: { click: () => { if (S.undo.length === mark) undo(); box.hidden = true; } } }, "되돌리기") : null);
   box.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(hideToast, 5000);
@@ -1524,6 +1525,17 @@ function glossaryEl(obj) {
         const set = (target, k, v, key) => { snapshot(key); target[k] = v; touched(); };
         const text = (target, k, ph, key, cls) => el("input", { class: cls, value: target[k] ?? "", placeholder: ph, "aria-label": `${g.name || i + 1} ${ph}`,
           list: k === "type" ? "data-types" : null, on: { input: (e) => set(target, k, e.target.value, key) } });
+        // Renaming a data item renames it everywhere it is used, once typing ends (change fires on leaving the field).
+        const nameInput = (item, idx) => {
+          const before = item.name || "";
+          const input = text(item, "name", "데이터 이름", `gl:${idx}:name`);
+          input.addEventListener("change", () => {
+            const n = renameData(before, (item.name || "").trim());
+            if (n) { toast(`데이터 이름을 ‘${before}’에서 ‘${item.name.trim()}’(으)로 바꾸고 쓰는 곳 ${n}군데에 반영했습니다`, false); renderGraph(); }
+            draw();
+          });
+          return input;
+        };
         const fieldRow = (f, j) => el("div", { class: "data-field" },
           text(f, "name", "필드 이름", `gl:${i}:${j}:name`, "f-name"), text(f, "type", "형식", `gl:${i}:${j}:type`, "f-type"),
           el("label", { class: "req-box f-req", title: "필수" }, el("input", { type: "checkbox", checked: f.required !== false ? true : null, "aria-label": "필수",
@@ -1531,7 +1543,7 @@ function glossaryEl(obj) {
           text(f, "desc", "설명", `gl:${i}:${j}:desc`, "f-desc"), text(f, "example", "예", `gl:${i}:${j}:ex`, "f-ex"),
           el("button", { type: "button", class: "icon-s f-x", "aria-label": `${f.name || j + 1} 필드 삭제`, on: { click: () => { snapshot(); fields.splice(j, 1); touched(); draw(); } } }, "×"));
         return el("div", { class: "tool-card" },
-          el("div", { class: "tool-head" }, el("span", { class: "tid" }, "데이터"), text(g, "name", "데이터 이름", `gl:${i}:name`),
+          el("div", { class: "tool-head" }, el("span", { class: "tid" }, "데이터"), nameInput(g, i),
             el("button", { type: "button", class: "icon-s", "aria-label": `${g.name || i + 1} 삭제`, on: { click: () => { snapshot(); rows.splice(i, 1); touched(); draw(); } } }, "×")),
           text(g, "meaning", "뜻 (한 줄)", `gl:${i}:meaning`),
           el("div", { class: "data-fields" }, ...fields.map(fieldRow),
@@ -1543,6 +1555,25 @@ function glossaryEl(obj) {
   };
   draw();
   return wrap;
+}
+// Replace a data name in every place that refers to it; returns how many places changed.
+function renameData(from, to) {
+  if (!from || !to || from === to) return 0;
+  let n = 0;
+  const swap = (list) => (list || []).map((x) => (x === from ? (n++, to) : x));
+  const swapText = (t) => (String(t || "").split(",").map((x) => x.trim()).includes(from)
+    ? (n++, String(t).split(",").map((x) => (x.trim() === from ? to : x.trim())).join(", ")) : t);
+  [...(S.doc.inputs || []), ...(S.doc.outputs || [])].forEach((r) => { if (r.item === from) { r.item = to; n++; } });
+  S.doc.agents.forEach((a) => {
+    a.steps.forEach((st) => {
+      st.inputs = swap(st.inputs); st.outputs = swap(st.outputs);
+      (st.process || []).forEach((r) => { r.input = swapText(r.input); r.output = swapText(r.output); });
+    });
+    a.edges.forEach((e) => { e.passes = swap(e.passes); });
+  });
+  S.doc.links.forEach((l) => { l.passes = swap(l.passes); });
+  if (n) markDirty();
+  return n;
 }
 function newTool(done) {
   const kindSel = el("select", { "aria-label": "종류" }, ...S.schema.tool_kinds.map((k) => el("option", { value: k }, `${TOOL_ICON[k]} ${k}`)));

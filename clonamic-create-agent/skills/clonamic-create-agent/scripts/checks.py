@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 
 import schema
@@ -24,6 +25,9 @@ def run(doc: dict) -> list[dict]:
     _data(doc, agents, links, add)
     _glossary(doc, agents, links, add)
     _tools(doc, agents, add)
+    _process_chain(doc, agents, add)
+    _step_kinds(doc, agents, add)
+    _scenarios(doc, agents, links, add)
     return issues
 
 
@@ -214,3 +218,53 @@ def _tools(doc, agents, add) -> None:
             add("tool", "project", f"도구 ‘{name or t.get('id')}’가 가리키는 에이전트가 없습니다.")
         if t.get("id") not in used:
             add("tool", "project", f"도구 ‘{name or t.get('id')}’를 쓰는 단계가 없습니다.")
+
+
+def names(text) -> list[str]:
+    """Data names in a process row's input/output text ("여행 조건, 지역 정보")."""
+    return [x.strip() for x in str(text or "").split(",") if x.strip()]
+
+
+def _process_chain(doc, agents, add) -> None:
+    """The process rows must carry a step from its input to its output: a row may only use data the step receives
+    or an earlier row made, and every step output must come out of some row. Free text that is not a data name
+    (a setting, a file path) is not checked."""
+    known = {g.get("name", "") for g in doc.get("glossary", [])}
+    for a in by_id(agents):
+        for s in by_id(a.get("steps", [])):
+            rows = [r for r in s.get("process", []) if str(r.get("name", "")).strip()]
+            if not any(names(r.get("input")) or names(r.get("output")) for r in rows):
+                continue
+            target, have = full(a, s["id"]), set(s.get("inputs", []))
+            for i, r in enumerate(rows, 1):
+                for n in names(r.get("input")):
+                    if n in known and n not in have:
+                        add("process", target, f"{target} 과정 {i}행이 쓰는 ‘{n}’은(는) 단계 input에도 앞 행 output에도 없습니다.")
+                have.update(names(r.get("output")))
+            for n in s.get("outputs", []):
+                if n and n not in have:
+                    add("process", target, f"{target}의 output ‘{n}’을(를) 만드는 과정 행이 없습니다.")
+
+
+def _step_kinds(doc, agents, add) -> None:
+    """A judgement step needs a model to judge with; a person step must be listed among the human checkpoints."""
+    kinds = {t.get("id"): t.get("kind") for t in doc.get("tools", [])}
+    points = {str(r.get("point", "")).strip() for r in doc.get("human_points", [])}
+    for a in by_id(agents):
+        for s in by_id(a.get("steps", [])):
+            target = full(a, s["id"])
+            used = list(s.get("tools", [])) + [r.get("tool") for r in s.get("process", []) if r.get("tool")]
+            if s.get("type") == "판단" and "모델" not in {kinds.get(t) for t in used}:
+                add("kind", target, f"{target}은(는) 판단 단계인데 종류가 모델인 도구를 쓰지 않습니다.")
+            if s.get("type") == "사람 확인" and target not in points:
+                add("kind", target, f"{target}은(는) 사람 확인 단계인데 사람 확인 지점에 없습니다.")
+
+
+def _scenarios(doc, agents, links, add) -> None:
+    """Numbers written in a scenario path must exist (A1, L2, A1-N3, A1-L4)."""
+    ids = {x["id"] for x in agents} | {x["id"] for x in links}
+    ids |= {full(a, x["id"]) for a in agents for x in a.get("steps", []) + a.get("edges", [])}
+    for r in doc.get("scenarios", []):
+        for ref in re.findall(r"\b[AL]\d+(?:-[NL]\d+)?\b", str(r.get("path", ""))):
+            if ref not in ids:
+                add("scenario", "project", f"검증 시나리오 ‘{r.get('name', '')}’의 경로에 없는 번호 {ref}가 있습니다.")
