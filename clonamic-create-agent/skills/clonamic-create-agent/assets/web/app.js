@@ -8,7 +8,7 @@ const S = {
   undo: [], redo: [], lastKey: null, lastAt: 0, issues: [], fitNext: true,
 };
 const $ = (id) => document.getElementById(id);
-let cy = null, eh = null;
+let cy = null;
 
 // ---------- api ----------
 async function api(method, path, body) {
@@ -289,11 +289,15 @@ function listen() {
 
 // ---------- canvas ----------
 // Cytoscape draws the links and does hit-testing, layout, and pan/zoom on transparent node boxes.
-// The visible cards are HTML laid over those boxes, so text never collides: branch names live in card rows,
-// and every link leaves from its row's port instead of carrying a label of its own.
-const CARD_W = 212, PILL_W = 120, ROW_H = 28, LINE_H = 18;
-const CARD_FONT = `600 13px ${getComputedStyle(document.documentElement).getPropertyValue("--font")}`;
+// The visible cards are HTML laid over those boxes. A card reads left to right: 입력 → 과정 → 출력;
+// every 출력 row has a port the link leaves from, so no text ever sits on a line.
+const CARD_W = 236, PILL_W = 132, LINE_H = 18;
+const FONT_STACK = getComputedStyle(document.documentElement).getPropertyValue("--font");
+const TITLE_FONT = `600 13px ${FONT_STACK}`, ROW_FONT = `12px ${FONT_STACK}`;
+const TYPE_ICON = { "판단": "◇", "처리": "□", "외부 연동": "⇄", "사람 확인": "◉" };
+const TOOL_ICON = { "MCP 서버": "🔌", "내부 에이전트": "🤖", "파일·스크립트": "📄", "외부 API": "🌐", "웹 검색": "🔍", "데이터베이스": "🗄", "모델": "🧠", "기타": "⋯" };
 let specs = new Map(), cardEls = new Map();
+try { S.detail = localStorage.getItem("cagent-detail") !== "0"; } catch (_) { S.detail = true; }
 
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function luminance(hex) {
@@ -301,73 +305,141 @@ function luminance(hex) {
   return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
 }
 const onColor = (hex) => (1.05 / (luminance(hex) + 0.05) >= 4.5 ? "#ffffff" : "#1d1d1f");
-function titleLines(text, max) {
-  const t = wrapText(text || "", max, CARD_FONT);
-  return Math.min(2, Math.max(1, t.count));
+const lines = (text, max, font, cap = 2) => Math.min(cap, Math.max(1, wrapText(text || "", max, font).count));
+const toolOf = (id) => (S.doc.tools || []).find((t) => t.id === id);
+function toolLabel(t) {
+  if (!t) return "";
+  if (t.kind === "내부 에이전트" && t.ref) { const a = agentOf(t.ref); if (a) return `${a.id} ${a.name || ""}`.trim(); }
+  return t.name || t.id;
+}
+function issueCount(nodeId) {
+  const a = curAgent();
+  return S.issues.filter((i) => {
+    const t = i.target || "";
+    if (!a) return t === nodeId || t.startsWith(`${nodeId}-`) || (nodeId === "start" && false);
+    if (t === `${a.id}-${nodeId}`) return true;
+    const e = a.edges.find((x) => `${a.id}-${x.id}` === t);
+    return !!e && e.from === nodeId;
+  }).length;
 }
 
-// Outgoing links of one node, and whether they are shown as rows (branches) or leave from the header.
 function outgoing(id) {
   const a = curAgent();
   return a ? a.edges.filter((e) => e.from === id) : S.doc.links.filter((l) => l.from === id);
 }
-function branchRows(id) {
-  const outs = outgoing(id), a = curAgent();
-  if (outs.length < 2 && !outs.some((e) => e.kind === "cond")) return [];
-  return outs.map((e) => ({ edges: [e], rid: e.id, name: e.name || nodeName(a, e.to) }));
-}
+const rowText = (r) => r.label + (r.data && r.data.length ? ` → ${r.data.join(", ")}` : "");
 
+// One card = a stack of fixed-height parts, so heights, ports, and click areas all come from the same numbers.
 function buildSpecs() {
   const a = curAgent(), list = [];
-  const card = (id, kind, title, extra) => list.push({ id, kind, title, rows: [], ...extra });
+  const destName = (e) => nodeName(a, e.to);
+  const edgeRows = (id, always) => {
+    const outs = outgoing(id);
+    if (!outs.length) return always ? [{ edge: null, label: "연결 없음", empty: true }] : [];
+    return outs.map((e) => ({ edge: e, label: e.name || destName(e), data: e.passes || [] }));
+  };
   if (!a) {
-    card("start", "start", "시작", { rows: branchRows("start") });
+    list.push({ id: "start", kind: "start", title: "시작", rows: outgoing("start").length > 1 ? edgeRows("start") : [], headOut: true });
     for (const x of S.doc.agents) {
-      const rows = x.exits.map((ex) => ({ edges: S.doc.links.filter((l) => l.from === x.id && l.exit === ex.name), rid: "", name: ex.name }));
-      card(x.id, "agent", x.name, { badge: x.id, color: colorOf(x), meta: `단계 ${x.steps.length}개`, rows });
+      const incoming = S.doc.links.filter((l) => l.to === x.id);
+      const n = issueCount(x.id);
+      list.push({ id: x.id, kind: "agent", title: x.name, badge: x.id, color: colorOf(x), sub: x.role,
+        chips: [x.steps.length ? `단계 ${x.steps.length}` : "단계 없음", n ? `⚠ ${n}` : null].filter(Boolean),
+        input: [...new Set(incoming.flatMap((l) => l.passes || []))],
+        rows: x.exits.map((ex) => { const l = S.doc.links.find((y) => y.from === x.id && y.exit === ex.name);
+          return { exit: ex.name, edge: l || null, label: ex.name, data: l ? l.passes || [] : [], empty: !l }; }),
+        headOut: true, headIn: true });
     }
-    card("end", "end", "끝");
+    list.push({ id: "end", kind: "end", title: "끝", rows: [], headIn: true });
   } else {
-    card("start", "start", "시작", { rows: branchRows("start") });
-    for (const st of a.steps) card(st.id, "step", st.name, { badge: st.id, color: colorOf(a), meta: st.type, rows: branchRows(st.id) });
-    for (const ex of a.exits) card(`exit:${ex.name}`, "exit", ex.name, { color: colorOf(a) });
+    list.push({ id: "start", kind: "start", title: "시작", rows: outgoing("start").length > 1 ? edgeRows("start") : [], headOut: true });
+    for (const st of a.steps) {
+      const n = issueCount(st.id);
+      list.push({ id: st.id, kind: "step", title: st.name, badge: st.id, color: colorOf(a), sub: st.summary,
+        chips: [`${TYPE_ICON[st.type] || "□"} ${st.type || "유형 없음"}`, n ? `⚠ ${n}` : null].filter(Boolean),
+        input: st.inputs || [], process: (st.process || []).filter((p) => (p.name || "").trim()),
+        tools: [...new Set([...(st.tools || []), ...(st.process || []).map((p) => p.tool).filter(Boolean)])].map(toolOf).filter(Boolean),
+        rows: edgeRows(st.id, true), headOut: true, headIn: true, tip: st });
+    }
+    for (const ex of a.exits) {
+      const l = S.doc.links.find((y) => y.from === a.id && y.exit === ex.name);
+      list.push({ id: `exit:${ex.name}`, kind: "exit", title: ex.name, color: colorOf(a), rows: [], headIn: true,
+        sub: l ? `→ ${nodeName(null, l.to)}` : "에이전트 연결 없음" });
+    }
   }
-  for (const sp of list) {
-    const pill = ["start", "end", "exit"].includes(sp.kind);
-    sp.w = pill ? PILL_W : CARD_W;
-    sp.lines = titleLines(sp.title, pill ? sp.w - 28 : sp.w - 24 - 34 - 8);
-    sp.headH = pill ? 16 + sp.lines * LINE_H : 19 + sp.lines * LINE_H + 19;
-    sp.bt = sp.kind === "agent" ? 3 : 1;  // top border; the box height includes both borders
-    sp.h = sp.bt + sp.headH + (sp.rows.length ? 1 + sp.rows.length * ROW_H : 0) + 1;
-    specs.set(sp.id, sp);
-  }
+  for (const sp of list) measure(sp);
+  specs = new Map(list.map((sp) => [sp.id, sp]));
   return list;
 }
 
-// Where a link attaches: the right edge of its branch row (or the header), and the left edge of the target header.
+function measure(sp) {
+  const pill = ["start", "end", "exit"].includes(sp.kind), detail = S.detail;
+  sp.w = pill ? PILL_W : CARD_W;
+  sp.bt = sp.kind === "agent" ? 3 : 1;
+  const parts = [];
+  sp.lines = lines(sp.title, pill ? sp.w - 28 : sp.w - 24 - 36 - 8, TITLE_FONT);
+  const headH = pill ? 16 + sp.lines * LINE_H + (sp.sub ? 16 : 0) : 10 + sp.lines * LINE_H + (sp.chips?.length ? 22 : 0) + 6;
+  parts.push({ type: "head", h: headH });
+  if (!pill && detail && sp.sub) parts.push({ type: "sub", h: 20 });
+  if (!pill && detail && sp.input?.length) parts.push({ type: "input", h: 26 });
+  if (!pill && detail && sp.process?.length) parts.push({ type: "process", h: 26 });
+  if (sp.rows.length) {
+    if (!pill) parts.push({ type: "outlabel", h: 20 });
+    sp.rows.forEach((r, i) => { r.lines = lines(rowText(r), sp.w - 12 - 30, ROW_FONT); parts.push({ type: "row", i, h: r.lines === 1 ? 28 : 44 }); });
+  }
+  if (!pill && detail && sp.tools?.length) parts.push({ type: "tools", h: 28 });
+  let y = sp.bt;
+  for (const part of parts) { part.y = y; y += part.h; }
+  sp.parts = parts;
+  sp.headH = headH;
+  sp.h = y + 1 + (pill ? 0 : 4);
+}
+const partOf = (sp, type, i) => sp.parts.find((x) => x.type === type && (i === undefined || x.i === i));
+
+// Where a link attaches: the right edge of its 출력 row (or the header), and the left edge of the target header.
 function endpoints(edge, sourceId, targetId) {
   const s = specs.get(sourceId), t = specs.get(targetId);
   if (!s || !t) return null;
-  const i = s.rows.findIndex((r) => r.edges.includes(edge));
-  const sy = s.bt + (i < 0 ? s.headH / 2 : s.headH + 1 + i * ROW_H + ROW_H / 2) - s.h / 2;
-  return { src: `${s.w / 2 - 2}px ${sy}px`, dst: `${-t.w / 2}px ${t.bt + t.headH / 2 - t.h / 2}px` };
+  const i = s.rows.findIndex((r) => r.edge === edge);
+  const part = i >= 0 ? partOf(s, "row", i) : partOf(s, "head");
+  return { src: `${s.w / 2}px ${part.y + part.h / 2 - s.h / 2}px`, dst: `${-t.w / 2}px ${t.bt + t.headH / 2 - t.h / 2}px` };
 }
 
+// Node.append() turns null into the text "null"; skip empty parts instead.
+const add = (parent, ...kids) => parent.append(...kids.filter((k) => k !== null && k !== undefined && k !== false));
 function nodeCardEl(sp) {
-  const head = el("div", { class: "head" });
-  if (sp.badge) head.append(el("span", { class: "badge" }, sp.badge));
-  const title = el("div", { class: "title", style: `-webkit-line-clamp: ${sp.lines}` }, sp.title || "(이름 없음)");
-  head.append(title);
-  if (sp.meta) head.append(el("div", { class: "meta" }, sp.kind === "step" ? el("span", { class: "chip" }, sp.meta) : sp.meta));
-  const node = el("div", { class: `node ${sp.kind}${["start", "end", "exit"].includes(sp.kind) ? " pill" : ""}${sp.rows.length ? " has-rows" : ""}`,
-    style: `width:${sp.w}px;height:${sp.h}px;--c:${sp.color || "var(--edge)"};--on-c:${sp.color ? onColor(sp.color) : "#fff"}` }, head);
-  const headOut = outgoing(sp.id).some((e) => !sp.rows.some((r) => r.edges.includes(e)));
-  if (headOut) node.append(el("span", { class: "port", style: `top:${sp.headH / 2 - 4}px;margin-top:0` }));
-  if (sp.rows.length) {
-    node.append(el("div", { class: "rows" }, ...sp.rows.map((r) => el("div", { class: "row-item" },
-      r.rid ? el("span", { class: "rid" }, r.rid) : null, el("span", { class: "rname" }, r.name || "(이름 없음)"),
-      r.edges.length ? el("span", { class: "port" }) : null))));
+  const pill = ["start", "end", "exit"].includes(sp.kind);
+  const node = el("div", { class: `node ${sp.kind}${pill ? " pill" : ""}${pill && sp.rows.length ? " has-rows" : ""}`, "data-id": sp.id,
+    style: `width:${sp.w}px;height:${sp.h}px;--c:${sp.color || "var(--edge)"};--on-c:${sp.color ? onColor(sp.color) : "#fff"}` });
+  for (const part of sp.parts) {
+    const box = el("div", { class: `part ${part.type}`, style: `top:${part.y - sp.bt}px;height:${part.h}px` });
+    if (part.type === "head") {
+      const title = el("div", { class: "title", style: `-webkit-line-clamp:${sp.lines}` }, sp.title || "(이름 없음)");
+      if (pill) add(box, title, sp.sub ? el("div", { class: "pill-sub" }, sp.sub) : null);
+      else add(box, el("div", { class: "title-row" }, el("span", { class: "badge" }, sp.badge), title),
+        sp.chips?.length ? el("div", { class: "chips" }, ...sp.chips.map((c) => el("span", { class: `chip${c.startsWith("⚠") ? " warn" : ""}` }, c))) : null);
+    } else if (part.type === "sub") add(box, el("div", { class: "line muted" }, sp.sub));
+    else if (part.type === "input") add(box, el("span", { class: "tag" }, "입력"), el("span", { class: "line" }, sp.input.join(" · ")));
+    else if (part.type === "process") add(box, el("span", { class: "tag" }, `과정 ${sp.process.length}`),
+      el("span", { class: "line" }, ...sp.process.flatMap((p, i) => [i ? el("span", { class: "arrow" }, " → ") : null, p.name])));
+    else if (part.type === "outlabel") add(box, el("span", { class: "tag" }, "출력"));
+    else if (part.type === "row") {
+      const r = sp.rows[part.i];
+      box.classList.toggle("empty", !!r.empty);
+      add(box, el("span", { class: "row-text", style: `-webkit-line-clamp:${r.lines}` },
+        el("span", { class: "rname" }, r.label), r.data?.length ? el("span", { class: "rdata" }, ` → ${r.data.join(", ")}`) : null),
+        r.empty && r.exit ? el("span", { class: "rnone" }, "연결 없음") : null);
+    } else if (part.type === "tools") add(box, ...sp.tools.slice(0, 4).map((t) => el("span", { class: "tool-chip", title: `${t.kind} · ${toolLabel(t)}` }, `${TOOL_ICON[t.kind] || "⋯"} ${toolLabel(t)}`)),
+      sp.tools.length > 4 ? el("span", { class: "tool-chip" }, `+${sp.tools.length - 4}`) : null);
+    add(node, box);
   }
+  const head = partOf(sp, "head");
+  if (sp.headIn) add(node, el("span", { class: "port in", style: `top:${head.y - sp.bt + head.h / 2 - 5}px` }));
+  if (sp.headOut) add(node, el("span", { class: "port out head-out", "data-row": "-1", title: "끌어서 새 연결", style: `top:${head.y - sp.bt + head.h / 2 - 5}px` }));
+  // Row ports sit on the card edge (outside the clipped row box) so the whole dot can be grabbed.
+  for (const part of sp.parts.filter((x) => x.type === "row"))
+    add(node, el("span", { class: "port out", "data-row": part.i, title: sp.rows[part.i].edge ? "끌어서 도착지 바꾸기" : "끌어서 연결", style: `top:${part.y - sp.bt + part.h / 2 - 5}px` }));
+  node.querySelectorAll(".port.out").forEach((pt) => pt.addEventListener("pointerdown", (e) => startPortDrag(e, sp.id, Number(pt.dataset.row))));
   return node;
 }
 
@@ -375,59 +447,55 @@ const STYLE = () => [
   { selector: "node", style: { shape: "round-rectangle", width: "data(w)", height: "data(h)", "background-opacity": 0, "border-width": 0, label: "" } },
   { selector: "edge", style: {
     width: 1.6, "line-color": css("--edge"), "target-arrow-color": css("--edge"), "target-arrow-shape": "triangle", "arrow-scale": 0.9,
-    "curve-style": "round-taxi", "taxi-direction": "rightward", "taxi-turn": 28, "taxi-turn-min-distance": 8, "taxi-radius": 10,
-    label: "" } },
+    "curve-style": "round-taxi", "taxi-direction": "rightward", "taxi-turn": 28, "taxi-turn-min-distance": 8, "taxi-radius": 10, label: "" } },
   { selector: "edge.back", style: { "curve-style": "unbundled-bezier", "control-point-distances": [-60], "control-point-weights": [0.5], "line-style": "dashed", "line-dash-pattern": [6, 4] } },
   { selector: "edge.sel", style: { "line-color": css("--accent"), "target-arrow-color": css("--accent"), width: 2.6, "z-index": 9 } },
-  { selector: "edge.hl", style: { "line-color": css("--hl"), "target-arrow-color": css("--hl"), width: 3 } },
-  { selector: ".eh-ghost-edge, edge.eh-preview", style: { "line-color": css("--accent"), "target-arrow-color": css("--accent"), "curve-style": "bezier", width: 2 } },
-  { selector: ".eh-handle", style: { "background-color": css("--accent"), "background-opacity": 1, width: 10, height: 10, shape: "ellipse" } },
+  { selector: "edge.hl", style: { "line-color": css("--hl"), "target-arrow-color": css("--hl"), width: 3, "z-index": 9 } },
 ];
 
 function elements() {
   const a = curAgent(), items = [];
   for (const sp of buildSpecs()) items.push({ group: "nodes", data: { id: sp.id, w: sp.w, h: sp.h } });
-  const edges = a ? a.edges.map((e) => [`edge:${e.id}`, e, `${a.id}-${e.id} ${e.name || nodeName(a, e.to)}`])
-    : S.doc.links.map((l) => [`link:${l.id}`, l, `${l.id} ${l.name || l.exit || nodeName(null, l.to)}`]);
-  for (const [id, e, lab] of edges) {
+  const edges = a ? a.edges.map((e) => [`edge:${e.id}`, e]) : S.doc.links.map((l) => [`link:${l.id}`, l]);
+  for (const [id, e] of edges) {
     const ends = endpoints(e, e.from, e.to);
-    if (ends) items.push({ group: "edges", data: { id, source: e.from, target: e.to, se: ends.src, te: ends.dst, lab } });
+    if (ends) items.push({ group: "edges", data: { id, source: e.from, target: e.to, se: ends.src, te: ends.dst } });
   }
   return items;
 }
 
 function renderGraph() {
+  hideTip();
   if (!S.doc) { if (cy) cy.elements().remove(); $("cards-inner").replaceChildren(); return; }
   if (!cy) {
     cy = cytoscape({ container: $("cy"), style: STYLE(), wheelSensitivity: 0.3, boxSelectionEnabled: false, autounselectify: true, minZoom: 0.2, maxZoom: 2.5 });
-    cy.on("tap", (e) => {
-      if (e.target === cy) return;  // keep the last opened document; the 검토 tab is one click away
-      const id = e.target.id();
-      if (e.target.isEdge()) select(curAgent() ? "edge" : "link", id.split(":")[1]);
-      else if (id === "start" || id === "end") return;
-      else if (id.startsWith("exit:")) select("exit", id.slice(5));
-      else select(curAgent() ? "step" : "agent", id);
-    });
+    cy.on("tap", "node", (e) => tapNode(e.target, e.position));
+    cy.on("tap", "edge", (e) => select(curAgent() ? "edge" : "link", e.target.id().split(":")[1]));
+    // A tap on empty canvas keeps the last opened document; the 검토 tab is one click away.
     cy.on("dbltap", "node", (e) => { if (!curAgent() && agentOf(e.target.id())) enter(e.target.id()); });
-    cy.on("dragfree", "node", () => { snapshot(); savePositions(); markDirty(); markBack(); });
+    cy.on("dragfree", "node", () => { snapshot(); resolveOverlaps(); savePositions(); markDirty(); markBack(); });
     cy.on("position", "node", (e) => placeCard(e.target));
-    cy.on("viewport", syncView);
-    cy.on("mouseover", "node", (e) => { const c = cardEls.get(e.target.id()); if (c) c.title = specs.get(e.target.id())?.title || ""; });
-    eh = cy.edgehandles({ canConnect: canConnect, edgeParams: () => ({}), hoverDelay: 120, snap: true, noEdgeEventsInDraw: true });
-    cy.on("ehcomplete", (e, src, dst, added) => { added.remove(); connect(src.id(), dst.id()); });
+    cy.on("viewport", () => { syncView(); hideTip(); });
+    cy.on("mousemove", "node", (e) => hoverNode(e.target, e.position));
+    cy.on("mouseout", "node", () => clearHover());
+    cy.on("mouseover", "edge", (e) => hoverEdge(e.target, true));
+    cy.on("mouseout", "edge", (e) => hoverEdge(e.target, false));
   }
-  specs = new Map();
   const pos = layout(S.level);
   cy.elements().remove();
   cy.add(elements());
   cy.edges().forEach((e) => e.style({ "source-endpoint": e.data("se"), "target-endpoint": e.data("te") }));
-  const inner = $("cards-inner");
   cardEls = new Map([...specs.values()].map((sp) => [sp.id, nodeCardEl(sp)]));
-  inner.replaceChildren(...cardEls.values());
-  let missing = false;
-  cy.nodes().forEach((n) => { if (pos[n.id()]) n.position(pos[n.id()]); else missing = true; placeCard(n); });
-  if (missing) arrange(false);
-  else if (S.fitNext) openView();
+  $("cards-inner").replaceChildren(...cardEls.values());
+  // Positions saved before the card layout (version 2) were made for small top-to-bottom boxes: lay those out again.
+  const stale = Object.keys(pos).some((k) => k !== "_v") && pos._v !== 2;
+  let missing = stale;
+  cy.nodes().forEach((n) => { if (!stale && pos[n.id()]) n.position(pos[n.id()]); else missing = true; placeCard(n); });
+  if (missing) { if (stale) snapshot(); arrange(false); }
+  else {
+    if (resolveOverlaps()) { savePositions(); markDirty(); }
+    if (S.fitNext) openView();
+  }
   S.fitNext = false;
   markBack();
   markSelection();
@@ -454,6 +522,25 @@ function syncView() {
 function markBack() {
   cy.edges().forEach((e) => e.toggleClass("back", e.target().position().x <= e.source().position().x + 40));
 }
+// Push cards down until none overlap (cards grow when rows or details are added). Returns whether anything moved.
+function resolveOverlaps() {
+  const nodes = cy.nodes().toArray();
+  let moved = false;
+  for (let pass = 0; pass < 60; pass++) {
+    let any = false;
+    nodes.sort((p, q) => p.position("y") - q.position("y"));
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i].boundingBox(), b = nodes[j].boundingBox(), gap = 18;
+        if (a.x2 + gap <= b.x1 || b.x2 + gap <= a.x1 || a.y2 + gap <= b.y1 || b.y2 + gap <= a.y1) continue;
+        nodes[j].position("y", nodes[j].position("y") + (a.y2 + gap - b.y1));
+        any = moved = true;
+      }
+    }
+    if (!any) break;
+  }
+  return moved;
+}
 function markSelection() {
   cardEls.forEach((c) => c.classList.remove("sel"));
   cy.edges().removeClass("sel");
@@ -465,13 +552,14 @@ function markSelection() {
 
 function arrange(save = true) {
   if (save) snapshot();
-  const run = cy.layout({ name: "dagre", rankDir: "LR", nodeSep: 30, rankSep: 84, edgeSep: 14, fit: false });
-  run.one("layoutstop", () => { savePositions(); markDirty(); markBack(); openView(); });
+  const run = cy.layout({ name: "dagre", rankDir: "LR", nodeSep: 32, rankSep: 90, edgeSep: 14, fit: false });
+  run.one("layoutstop", () => { resolveOverlaps(); savePositions(); markDirty(); markBack(); openView(); });
   run.run();
 }
 function savePositions() {
   const pos = layout(S.level);
   for (const k of Object.keys(pos)) delete pos[k];
+  pos._v = 2;
   cy.nodes().forEach((n) => { const p = n.position(); pos[n.id()] = { x: Math.round(p.x), y: Math.round(p.y) }; });
 }
 function cyId(kind, id) {
@@ -495,35 +583,124 @@ function openView() {
   cy.pan({ x: 60 - box.x1 * 0.7, y: cy.height() / 2 - ((box.y1 + box.y2) / 2) * 0.7 });
 }
 
-function canConnect(src, dst) {
-  const s = src.id(), d = dst.id();
-  if (s === d || d === "start" || s === "end" || s.startsWith("exit:")) return false;
-  return true;
+// ---------- card interaction ----------
+function hitAt(node, position) {
+  const sp = specs.get(node.id());
+  if (!sp || !position) return null;  // keyboard or programmatic taps carry no position
+  const y = position.y - (node.position("y") - sp.h / 2);
+  return sp.parts.find((p) => y >= p.y && y < p.y + p.h) || null;
 }
+function tapNode(node, position) {
+  const id = node.id(), sp = specs.get(id), part = hitAt(node, position), a = curAgent();
+  if (part?.type === "row") {
+    const r = sp.rows[part.i];
+    if (r.edge) return select(a ? "edge" : "link", r.edge.id);
+    if (r.exit) return select("agent", id, "exits");
+  }
+  if (id === "start" || id === "end") return;
+  if (id.startsWith("exit:")) return select("exit", id.slice(5));
+  const focus = { input: "inputs", process: "process", tools: "tools", outlabel: "outputs", sub: a ? "summary" : "role" }[part?.type];
+  select(a ? "step" : "agent", id, focus);
+}
+function hoverNode(node, position) {
+  const part = hitAt(node, position), sp = specs.get(node.id()), card = cardEls.get(node.id());
+  clearHover(node.id());
+  card?.classList.add("hover");
+  if (part?.type === "row" && sp.rows[part.i].edge) {
+    const r = sp.rows[part.i];
+    cy.$id(cyId(curAgent() ? "edge" : "link", r.edge.id)).addClass("hl");
+    card.querySelector(`.part.row[style*="top:${part.y - sp.bt}px"]`)?.classList.add("hover");
+  }
+  if (sp?.tip && !S.portDrag) showTip(node, sp.tip);
+}
+function clearHover(keep) {
+  cardEls.forEach((c, id) => { if (id !== keep) c.classList.remove("hover"); c.querySelectorAll(".part.row.hover").forEach((r) => r.classList.remove("hover")); });
+  if (cy) cy.edges(".hl").removeClass("hl");
+  if (!keep) hideTip();
+}
+function hoverEdge(edge, on) {
+  edge.toggleClass("hl", on);
+  for (const n of [edge.source(), edge.target()]) cardEls.get(n.id())?.classList.toggle("hl", on);
+}
+function showTip(node, st) {
+  const tip = $("tip"), r = node.renderedBoundingBox(), stage = $("stage").getBoundingClientRect();
+  tip.replaceChildren(el("div", {}, el("strong", {}, "입력 "), (st.inputs || []).join(", ") || "없음"),
+    el("div", {}, el("strong", {}, "출력 "), (st.outputs || []).join(", ") || "없음"));
+  tip.hidden = false;
+  tip.style.left = `${Math.min(r.x2 + 10, stage.width - 260)}px`;
+  tip.style.top = `${Math.max(8, r.y1)}px`;
+}
+function hideTip() { const t = $("tip"); if (t) t.hidden = true; }
 
-function connect(src, dst) {
+// Drag from a port to a card: a new link, or a new target for the link that row already has.
+function startPortDrag(e, nodeId, rowIndex) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  hideTip();
+  const stage = $("stage").getBoundingClientRect(), from = e.target.getBoundingClientRect();
+  const x0 = from.left + from.width / 2 - stage.left, y0 = from.top + from.height / 2 - stage.top;
+  const svg = $("drag-line"), path = svg.querySelector("path");
+  svg.hidden = false;
+  S.portDrag = { nodeId, rowIndex, target: null };
+  const toModel = (ev) => ({ x: (ev.clientX - stage.left - cy.pan().x) / cy.zoom(), y: (ev.clientY - stage.top - cy.pan().y) / cy.zoom() });
+  const move = (ev) => {
+    const x1 = ev.clientX - stage.left, y1 = ev.clientY - stage.top, dx = Math.max(40, Math.abs(x1 - x0) / 2);
+    path.setAttribute("d", `M${x0},${y0} C${x0 + dx},${y0} ${x1 - dx},${y1} ${x1},${y1}`);
+    const m = toModel(ev);
+    const hit = cy.nodes().filter((n) => { const b = n.boundingBox(); return m.x >= b.x1 && m.x <= b.x2 && m.y >= b.y1 && m.y <= b.y2; })[0];
+    const ok = hit && canDrop(nodeId, hit.id());
+    cardEls.forEach((c) => c.classList.remove("drop", "nodrop"));
+    if (hit && hit.id() !== nodeId) cardEls.get(hit.id())?.classList.add(ok ? "drop" : "nodrop");
+    S.portDrag.target = ok ? hit.id() : null;
+  };
+  const end = (ev) => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("keydown", esc);
+    svg.hidden = true;
+    path.setAttribute("d", "");
+    cardEls.forEach((c) => c.classList.remove("drop", "nodrop"));
+    const drag = S.portDrag;
+    S.portDrag = null;
+    if (ev && drag?.target) dropLink(drag.nodeId, drag.rowIndex, drag.target);
+  };
+  const esc = (ev) => { if (ev.key === "Escape") end(null); };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("keydown", esc);
+  move(e);
+}
+function canDrop(src, dst) {
+  if (src === dst || dst === "start") return false;
+  return !src.startsWith("exit:") && src !== "end";
+}
+function dropLink(src, rowIndex, dst) {
+  const a = curAgent(), sp = specs.get(src), row = rowIndex >= 0 ? sp.rows[rowIndex] : null;
   snapshot();
-  const a = curAgent();
+  if (row?.edge) {
+    row.edge.to = dst;
+    return after(a ? "edge" : "link", row.edge.id);
+  }
   if (!a) {
     let exit = "";
     if (src !== "start") {
       const from = agentOf(src);
-      const used = new Set(S.doc.links.filter((l) => l.from === src).map((l) => l.exit));
-      const free = from.exits.find((x) => !used.has(x.name));
-      if (free) exit = free.name;
+      if (row?.exit) exit = row.exit;
       else {
-        exit = from.exits.length ? `출구${from.exits.length + 1}` : "완료";
+        let n = from.exits.length + 1;
+        exit = from.exits.length ? `출력${n}` : "완료";
+        while (from.exits.some((x) => x.name === exit)) exit = `출력${++n}`;
         from.exits.push({ name: exit, when: "" });
       }
     }
     const link = { id: nextId(S.doc.links, "L"), from: src, to: dst, kind: "always", exit, name: "", passes: [] };
     S.doc.links.push(link);
-    after("link", link.id);
-  } else {
-    const e = { id: nextId(a.edges, "L"), from: src, to: dst, kind: "always", name: "", passes: [] };
-    a.edges.push(e);
-    after("edge", e.id);
+    return after("link", link.id);
   }
+  const e = { id: nextId(a.edges, "L"), from: src, to: dst, kind: "always", name: "", passes: [] };
+  a.edges.push(e);
+  after("edge", e.id);
 }
 function after(kind, id) {
   markDirty();
@@ -551,11 +728,18 @@ function renderCanvasEmpty() {
       el("button", { type: "button", class: "primary", on: { click: a ? addStep : addAgent } }, a ? "단계 추가" : "에이전트 추가"),
       a ? null : el("button", { type: "button", on: { click: () => { setTab("chat"); $("chat-input").focus(); } } }, "AI와 인터뷰")));
 }
+function toggleDetail() {
+  S.detail = !S.detail;
+  try { localStorage.setItem("cagent-detail", S.detail ? "1" : "0"); } catch (_) { /* storage off */ }
+  renderTop();
+  renderGraph();
+}
 
 // ---------- toolbar / crumb ----------
 const I = {
   undo: "M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3", redo: "m15 14 5-5-5-5M20 9H10a6 6 0 0 0 0 12h3",
   plus: "M12 5v14M5 12h14", minus: "M5 12h14", fit: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
+  detail: "M4 6h16M4 12h16M4 18h10", compact: "M4 8h16M4 16h16",
 };
 function ibtn(path, label, fn, extra = {}) {
   const svg = icon(path);
@@ -579,13 +763,14 @@ function renderTop() {
   const btn = (label, fn, extra = {}) => tools.append(el("button", { type: "button", on: { click: fn }, ...extra }, label));
   const sep = () => tools.append(el("span", { class: "sep", "aria-hidden": "true" }));
   if (!a) btn("+ 에이전트", addAgent);
-  else { btn("+ 단계", addStep); btn("+ 출구", addExit); }
-  btn("연결 그리기", toggleDraw, { "aria-pressed": S.draw ? "true" : "false", title: "켜고 카드에서 카드로 끌어 연결합니다. Esc로 끕니다" });
+  else { btn("+ 단계", addStep); btn("+ 출력", addExit, { title: "에이전트가 끝나는 경우를 추가합니다" }); }
   btn("자동 정렬", () => arrange(true), { title: "배치를 새로 계산합니다" });
   sep();
   btn("프로젝트 문서", () => select("project", ""));
+  btn("도구 목록", () => select("project", "", "tools"));
   btn("용어 사전", () => select("glossary", ""));
-  $("zoom").append(ibtn(I.plus, "확대 (+)", () => zoomBy(1.2)), ibtn(I.minus, "축소 (-)", () => zoomBy(1 / 1.2)), ibtn(I.fit, "화면 맞춤 (0)", fitView));
+  $("zoom").append(ibtn(I.plus, "확대 (+)", () => zoomBy(1.2)), ibtn(I.minus, "축소 (-)", () => zoomBy(1 / 1.2)), ibtn(I.fit, "화면 맞춤 (0)", fitView),
+    ibtn(S.detail ? I.compact : I.detail, S.detail ? "간단히 보기" : "자세히 보기", toggleDetail, { id: "btn-detail" }));
   const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
   const undoBtn = el("button", { type: "button", id: "btn-undo", title: `되돌리기 (${mod}Z)`, on: { click: undo } }, icon(I.undo), " 되돌리기");
   undoBtn.firstChild.setAttribute("class", "i");
@@ -599,11 +784,6 @@ $("project-name").addEventListener("input", (e) => { snapshot("project-name"); S
 function renderCrumbOnly() {
   const first = $("crumb").firstElementChild;
   if (first) first.textContent = curAgent() ? S.doc.name || "프로젝트" : `${S.doc.name || "프로젝트"} · 에이전트 지도`;
-}
-function toggleDraw() {
-  S.draw = !S.draw;
-  if (S.draw) eh.enableDrawMode(); else eh.disableDrawMode();
-  renderTop();
 }
 
 function addAgent() {
@@ -627,8 +807,8 @@ function addStep() {
 function addExit() {
   snapshot();
   const a = curAgent();
-  let n = a.exits.length + 1, name = `출구${n}`;
-  while (a.exits.some((x) => x.name === name)) name = `출구${++n}`;
+  let n = a.exits.length + 1, name = `출력${n}`;
+  while (a.exits.some((x) => x.name === name)) name = `출력${++n}`;
   a.exits.push({ name, when: "" });
   placeNew(`exit:${name}`);
   after("exit", name);
@@ -642,9 +822,10 @@ function placeNew(id) {
 }
 
 // ---------- selection & delete ----------
-function select(kind, id) {
+function select(kind, id, focus = null) {
   S.sel = { kind, id };
   S.preview = false;
+  S.focusField = focus;
   if (cy) markSelection();
   renderDoc();
   setTab("doc");
@@ -683,7 +864,7 @@ function removeSelected() {
   renderAll();
 }
 function askRemove() {
-  const label = { agent: "에이전트와 그 연결", step: "단계와 그 연결", edge: "연결", link: "에이전트 연결", exit: "출구와 그곳으로 가는 연결" }[S.sel.kind];
+  const label = { agent: "에이전트와 그 연결", step: "단계와 그 연결", edge: "연결", link: "에이전트 연결", exit: "출력과 그곳으로 가는 연결" }[S.sel.kind];
   modal("삭제", [el("p", {}, `${label}을(를) 지웁니다.`)], [["삭제", () => { closeModal(); removeSelected(); }, "danger"], ["취소", closeModal]]);
 }
 document.addEventListener("keydown", (e) => {
@@ -693,7 +874,6 @@ document.addEventListener("keydown", (e) => {
     if (e.shiftKey || e.key === "y") redo(); else undo();
     return;
   }
-  if (!typing && $("modal").hidden && e.key === "Escape" && S.draw) { toggleDraw(); return; }
   if (!typing && $("modal").hidden && cy && S.doc && !e.metaKey && !e.ctrlKey) {
     if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomBy(1.2); return; }
     if (e.key === "-") { e.preventDefault(); zoomBy(1 / 1.2); return; }
@@ -709,7 +889,7 @@ document.addEventListener("keydown", (e) => {
 function fieldsFor(kind) {
   if (kind === "glossary") return S.schema.project.filter((f) => f[0] === "glossary");
   if (kind === "project") return S.schema.project.filter((f) => f[0] !== "glossary");
-  if (kind === "exit") return [["name", "출구 이름", "line", true, null], ["when", "언제", "text", true, null]];
+  if (kind === "exit") return [["name", "출력 이름", "line", true, null], ["when", "언제", "text", true, null]];
   return S.schema[kind];
 }
 function titleFor(kind, obj) {
@@ -720,7 +900,7 @@ function titleFor(kind, obj) {
   if (kind === "step") return `${a.id}-${obj.id} · ${obj.name || ""}`;
   if (kind === "edge") return `${a.id}-${obj.id} · ${nodeName(a, obj.from)} → ${nodeName(a, obj.to)}`;
   if (kind === "link") return `${obj.id} · ${nodeName(null, obj.from)} → ${nodeName(null, obj.to)}`;
-  return `출구 · ${obj.name}`;
+  return `출력 · ${obj.name}`;
 }
 function previewTarget() {
   const { kind, id } = S.sel, a = curAgent();
@@ -742,10 +922,10 @@ function renderDoc() {
   const obj = selected();
   if (!obj) {
     panel.replaceChildren(S.doc ? el("ul", { class: "hint-list muted" },
-      el("li", {}, "카드나 연결선을 누르면 그 문서가 열립니다. 빈 곳을 눌러도 마지막 문서는 그대로 남습니다."),
+      el("li", {}, "카드나 연결선을 누르면 그 문서가 열립니다. 카드의 입력·과정·출력 줄을 누르면 그 칸으로 바로 갑니다. 빈 곳을 눌러도 마지막 문서는 그대로 남습니다."),
       el("li", {}, "에이전트 카드를 두 번 누르면 안의 단계로 들어갑니다."),
-      el("li", {}, "「연결 그리기」를 켜고 카드에서 카드로 끌면 연결이 생깁니다. Esc로 끕니다."),
-      el("li", {}, "분기 이름은 카드 안의 행으로 보이고, 선은 그 행의 점에서 나갑니다."),
+      el("li", {}, "카드 오른쪽의 점을 끌어 다른 카드에 놓으면 연결이 생깁니다. 출력 행의 점에서 끌면 그 출력의 연결이 되고, 이미 이어진 행이면 도착지가 바뀝니다. Esc로 취소합니다."),
+      el("li", {}, "왼쪽 아래 버튼으로 카드를 간단히 또는 자세히 볼 수 있습니다."),
       el("li", {}, "확대·축소는 +와 -, 화면 맞춤은 0, 되돌리기는 ⌘Z(Windows는 Ctrl+Z)입니다.")) : "");
     return;
   }
@@ -785,6 +965,15 @@ function renderDoc() {
   }
   panel.replaceChildren(...kids);
   fitAreas();
+  if (S.focusField) {
+    const f = $(`field-${S.focusField}`);
+    S.focusField = null;
+    if (f) {
+      const box = f.closest("details");
+      if (box) box.open = true;
+      requestAnimationFrame(() => { f.scrollIntoView({ block: "center" }); f.querySelector("input, textarea, select, button")?.focus({ preventScroll: true }); });
+    }
+  }
 }
 function hasValue(v) {
   if (Array.isArray(v)) return v.some(hasValue);
@@ -797,7 +986,7 @@ function togglePreview() { S.preview = !S.preview; renderDoc(); }
 
 function changed(kind, obj, key) {
   markDirty();
-  if (["name", "color", "kind", "exit"].includes(key)) {
+  if (["name", "color", "kind", "exit", "process", "tools", "inputs", "outputs", "passes", "summary", "role", "type", "exits"].includes(key)) {
     if (kind === "exit") renameExit(obj);
     renderGraph();
     renderTop();
@@ -854,11 +1043,110 @@ function fieldEl(kind, obj, [key, label, type, required, extra]) {
       ...(from ? from.exits : []).map((x) => el("option", { value: x.name, selected: obj[key] === x.name }, x.name)));
   } else if (type === "color") {
     input = el("input", { id, type: "color", value: obj[key] || "#4C78A8", on: { input: (e) => set(e.target.value) } });
-  } else if (type === "table") {
-    return el("div", { class: "field" }, el("div", { class: "label" }, label, required ? el("span", { class: "req" }, " *") : null),
-      tableEl(kind, obj, key, extra));
+  } else if (type === "table" || type === "process" || type === "toolrefs" || type === "tools") {
+    const editor = { table: () => tableEl(kind, obj, key, extra), process: () => processEl(kind, obj), toolrefs: () => toolRefsEl(kind, obj), tools: () => toolsEl(obj) }[type]();
+    return el("div", { class: "field", id: `field-${key}` }, el("div", { class: "label" }, label, required ? el("span", { class: "req" }, " *") : null,
+      type === "process" ? el("span", { class: "hint" }, " 이 단계 안의 흐름을 순서대로") : null,
+      type === "tools" ? el("span", { class: "hint" }, " 단계와 과정이 여기서 골라 씁니다") : null), editor);
   }
-  return el("div", { class: "field" }, lab, input);
+  return el("div", { class: "field", id: `field-${key}` }, lab, input);
+}
+
+// 과정: ordered rows joined by arrows; each row is a unit of the implementation (file, class, function, call, ...).
+function processEl(kind, obj) {
+  const rows = obj.process = obj.process || [];
+  const wrap = el("div", { class: "process" });
+  const touch = (key) => { snapshot(key); };
+  const draw = () => {
+    const items = rows.map((r, i) => {
+      const unit = el("select", { "aria-label": `${i + 1}번 단위`, on: { change: (e) => { touch(); r.unit = e.target.value; changed(kind, obj, "process"); } } },
+        ...S.schema.process_units.map((u) => el("option", { value: u, selected: r.unit === u }, u)));
+      const name = el("input", { value: r.name || "", placeholder: "이름 (예: minutes_loader.py, extract_decisions)", "aria-label": `${i + 1}번 이름`,
+        on: { input: (e) => { touch(`process:${obj.id}:${i}:name`); r.name = e.target.value; changed(kind, obj, "process"); } } });
+      const does = el("input", { value: r.does || "", placeholder: "하는 일 (쉬운 말)", "aria-label": `${i + 1}번 하는 일`,
+        on: { input: (e) => { touch(`process:${obj.id}:${i}:does`); r.does = e.target.value; changed(kind, obj, "process"); } } });
+      const tool = el("select", { "aria-label": `${i + 1}번 도구`, on: { change: (e) => { touch(); r.tool = e.target.value; changed(kind, obj, "process"); } } },
+        el("option", { value: "" }, "도구 없음"), ...(S.doc.tools || []).map((t) => el("option", { value: t.id, selected: r.tool === t.id }, `${TOOL_ICON[t.kind] || ""} ${toolLabel(t)}`)));
+      const move = (d) => { const j = i + d; if (j < 0 || j >= rows.length) return; touch(); [rows[i], rows[j]] = [rows[j], rows[i]]; changed(kind, obj, "process"); draw(); };
+      const ctrls = el("div", { class: "row-ctrls" },
+        el("button", { type: "button", class: "icon-s", "aria-label": `${i + 1}번 위로`, disabled: i === 0, on: { click: () => move(-1) } }, "↑"),
+        el("button", { type: "button", class: "icon-s", "aria-label": `${i + 1}번 아래로`, disabled: i === rows.length - 1, on: { click: () => move(1) } }, "↓"),
+        el("button", { type: "button", class: "icon-s", "aria-label": `${i + 1}번 삭제`, on: { click: () => { touch(); rows.splice(i, 1); changed(kind, obj, "process"); draw(); } } }, "×"));
+      return [i ? el("div", { class: "process-arrow", "aria-hidden": "true" }, "↓") : null,
+        el("div", { class: "process-item" }, el("span", { class: "num" }, String(i + 1)), unit, name, ctrls, does, tool)];
+    });
+    wrap.replaceChildren(...items.flat().filter(Boolean),
+      el("button", { type: "button", class: "add", on: { click: () => { touch(); rows.push({ unit: "함수", name: "", does: "", tool: "" }); changed(kind, obj, "process"); draw(); wrap.querySelector(".process-item:last-of-type input")?.focus(); } } }, "+ 과정 추가"));
+  };
+  draw();
+  return wrap;
+}
+
+// Tools a step uses: chips picked from the project catalog, plus a quick way to add a new catalog entry.
+function toolRefsEl(kind, obj) {
+  const refs = obj.tools = obj.tools || [];
+  const wrap = el("div", { class: "toolrefs" });
+  const draw = () => {
+    const pick = el("select", { "aria-label": "도구 추가", on: { change: (e) => {
+      const v = e.target.value;
+      if (v === "__new") return newTool((t) => { snapshot(); refs.push(t.id); changed(kind, obj, "tools"); draw(); });
+      if (v) { snapshot(); refs.push(v); changed(kind, obj, "tools"); draw(); }
+    } } }, el("option", { value: "" }, "+ 도구 추가"),
+      ...(S.doc.tools || []).filter((t) => !refs.includes(t.id)).map((t) => el("option", { value: t.id }, `${TOOL_ICON[t.kind] || ""} ${toolLabel(t)}`)),
+      el("option", { value: "__new" }, "새 도구 만들기…"));
+    wrap.replaceChildren(...refs.map((id, i) => { const t = toolOf(id);
+      return el("span", { class: `tool-pill${t ? "" : " missing"}` }, t ? `${TOOL_ICON[t.kind] || ""} ${toolLabel(t)}` : `${id} (목록에 없음)`,
+        el("button", { type: "button", "aria-label": `${t ? toolLabel(t) : id} 빼기`, on: { click: () => { snapshot(); refs.splice(i, 1); changed(kind, obj, "tools"); draw(); } } }, "×")); }), pick);
+  };
+  draw();
+  return wrap;
+}
+function newTool(done) {
+  const kindSel = el("select", { "aria-label": "종류" }, ...S.schema.tool_kinds.map((k) => el("option", { value: k }, `${TOOL_ICON[k]} ${k}`)));
+  const name = el("input", { placeholder: "이름 (예: 지도 MCP, 날씨 API, plan.py)", "aria-label": "이름" });
+  const purpose = el("input", { placeholder: "용도", "aria-label": "용도" });
+  const location = el("input", { placeholder: "위치·연결 (선택: 서버 이름, 파일 경로, 주소)", "aria-label": "위치·연결" });
+  const create = () => {
+    if (!name.value.trim()) { name.focus(); return; }
+    const t = { id: nextId(S.doc.tools || [], "T"), kind: kindSel.value, name: name.value.trim(), purpose: purpose.value.trim(), location: location.value.trim(), alternative: "" };
+    snapshot();
+    (S.doc.tools = S.doc.tools || []).push(t);
+    closeModal();
+    done(t);
+  };
+  modal("새 도구", [el("div", { class: "form-grid" }, kindSel, name, purpose, location)], [["만들기", create, "primary"], ["취소", closeModal]]);
+}
+// Project tool catalog: kind, name (or the agent it points at), purpose, location, alternative, and who uses it.
+function toolsEl(obj) {
+  const rows = obj.tools = obj.tools || [];
+  const wrap = el("div", { class: "tool-list" });
+  const users = () => {
+    const map = {};
+    for (const a of S.doc.agents) for (const st of a.steps) {
+      for (const id of new Set([...(st.tools || []), ...(st.process || []).map((p) => p.tool).filter(Boolean)])) (map[id] = map[id] || []).push(`${a.id}-${st.id}`);
+    }
+    return map;
+  };
+  const draw = () => {
+    const used = users();
+    wrap.replaceChildren(...rows.map((t, i) => {
+      const set = (k, v, key) => { snapshot(key); t[k] = v; changed("project", obj, "tools"); };
+      const kind = el("select", { "aria-label": `${t.id} 종류`, on: { change: (e) => { set("kind", e.target.value); draw(); } } },
+        ...S.schema.tool_kinds.map((k) => el("option", { value: k, selected: t.kind === k }, `${TOOL_ICON[k]} ${k}`)));
+      const name = t.kind === "내부 에이전트"
+        ? el("select", { "aria-label": `${t.id} 에이전트`, on: { change: (e) => { set("ref", e.target.value); set("name", toolLabel(t)); } } },
+          el("option", { value: "" }, "에이전트 선택"), ...S.doc.agents.map((a) => el("option", { value: a.id, selected: t.ref === a.id }, `${a.id} ${a.name || ""}`)))
+        : el("input", { value: t.name || "", placeholder: "이름", "aria-label": `${t.id} 이름`, on: { input: (e) => set("name", e.target.value, `tool:${t.id}:name`) } });
+      const field = (k, ph) => el("input", { value: t[k] || "", placeholder: ph, "aria-label": `${t.id} ${ph}`, on: { input: (e) => set(k, e.target.value, `tool:${t.id}:${k}`) } });
+      return el("div", { class: "tool-card" },
+        el("div", { class: "tool-head" }, el("span", { class: "tid" }, t.id), kind,
+          el("button", { type: "button", class: "icon-s", "aria-label": `${t.id} 삭제`, on: { click: () => { snapshot(); rows.splice(i, 1); changed("project", obj, "tools"); draw(); } } }, "×")),
+        name, field("purpose", "용도"), field("location", "위치·연결 (서버, 파일 경로, 주소)"), field("alternative", "대안"),
+        el("div", { class: "tool-used" }, used[t.id] ? `쓰는 곳: ${used[t.id].join(", ")}` : "아직 쓰는 단계가 없습니다"));
+    }), el("button", { type: "button", class: "add", on: { click: () => { snapshot(); rows.push({ id: nextId(rows, "T"), kind: "기타", name: "", purpose: "", location: "", alternative: "" }); changed("project", obj, "tools"); draw(); } } }, "+ 도구 추가"));
+  };
+  draw();
+  return wrap;
 }
 
 function tableEl(kind, obj, key, cols) {

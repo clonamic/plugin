@@ -46,7 +46,7 @@ class Store:
         return [{"id": r["id"], "name": json.loads(r["doc"]).get("name", ""), "updated": r["updated"]} for r in rows]
 
     def create(self, name: str, doc: dict | None = None) -> int:
-        doc = doc or schema.new_project(name)
+        doc = schema.migrate(doc) if doc else schema.new_project(name)
         now = time.time()
         with self.lock, self.db:
             cur = self.db.execute("INSERT INTO projects (doc, created, updated) VALUES (?, ?, ?)",
@@ -57,7 +57,7 @@ class Store:
         r = self.db.execute("SELECT * FROM projects WHERE id = ?", (pid,)).fetchone()
         if not r:
             return None
-        return {"id": r["id"], "doc": json.loads(r["doc"]), "version": r["version"], "export_path": r["export_path"],
+        return {"id": r["id"], "doc": schema.migrate(json.loads(r["doc"])), "version": r["version"], "export_path": r["export_path"],
                 "polished": r["polished_version"] == r["version"]}
 
     def find(self, name: str) -> int | None:

@@ -33,6 +33,8 @@
   <div id="stage">
     <div id="cy" tabindex="0" aria-label="설계 캔버스. +와 -로 확대·축소, 0으로 화면 맞춤"></div>
     <div id="cards" aria-hidden="true"><div id="cards-inner"></div></div>
+    <svg id="drag-line" hidden aria-hidden="true"><path d=""/></svg>
+    <div id="tip" class="float" hidden></div>
     <div id="tools" class="float capsule" role="toolbar" aria-label="캔버스 도구"></div>
     <div id="zoom" class="float stack" role="toolbar" aria-label="확대와 축소"></div>
     <div id="history" class="float capsule" role="toolbar" aria-label="되돌리기"></div>
@@ -62,8 +64,6 @@
 
 <script src="vendor/cytoscape-3.34.3.min.js"></script>
 <script src="vendor/cytoscape-dagre-4.0.1.js"></script>
-<script src="lodash-shim.js"></script>
-<script src="vendor/cytoscape-edgehandles-4.0.1.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

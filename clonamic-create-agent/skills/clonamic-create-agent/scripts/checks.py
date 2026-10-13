@@ -24,6 +24,7 @@ def run(doc: dict) -> list[dict]:
     _loops(agents, links, add)
     _data(doc, agents, links, add)
     _glossary(doc, agents, links, add)
+    _tools(doc, agents, add)
     return issues
 
 
@@ -92,7 +93,7 @@ def _flow(doc, agents, links, add) -> None:
                 add("flow", target, f"{target} {s.get('name', '')}은(는) 나가는 연결이 없는 막다른 단계입니다.")
         for x in a.get("exits", []):
             if EXIT + x.get("name", "") not in inside:
-                add("flow", a["id"], f"{a['id']}의 출구「{x.get('name', '')}」로 가는 연결이 없습니다.")
+                add("flow", a["id"], f"{a['id']}의 출력「{x.get('name', '')}」로 가는 연결이 없습니다.")
 
 
 def _branches(agents, links, add) -> None:
@@ -117,10 +118,10 @@ def _exits(agents, links, add) -> None:
         for name in names:
             count = sum(1 for link in links if link.get("from") == a["id"] and link.get("exit") == name)
             if count != 1:
-                add("exit", a["id"], f"{a['id']}의 출구「{name}」에 이어진 에이전트 연결이 {count}개입니다. 1개여야 합니다.")
+                add("exit", a["id"], f"{a['id']}의 출력「{name}」에 이어진 에이전트 연결이 {count}개입니다. 1개여야 합니다.")
         for link in links:
             if link.get("from") == a["id"] and link.get("exit") not in names:
-                add("exit", link["id"], f"{link['id']}가 {a['id']}에 없는 출구「{link.get('exit', '')}」에서 나갑니다.")
+                add("exit", link["id"], f"{link['id']}가 {a['id']}에 없는 출력「{link.get('exit', '')}」에서 나갑니다.")
 
 
 def _loops(agents, links, add) -> None:
@@ -196,3 +197,25 @@ def _glossary(doc, agents, links, add) -> None:
         if key and key in seen and seen[key] != name:
             add("glossary", "project", f"「{seen[key]}」와「{name}」은 같은 이름으로 보입니다. 하나로 맞추세요.")
         seen.setdefault(key, name)
+
+
+def _tools(doc, agents, add) -> None:
+    catalog = {t.get("id"): t for t in doc.get("tools", [])}
+    agent_ids = {a["id"] for a in agents}
+    used = set()
+    for a in by_id(agents):
+        for s in by_id(a.get("steps", [])):
+            target = full(a, s["id"])
+            refs = list(s.get("tools", [])) + [x.get("tool") for x in s.get("process", []) if x.get("tool")]
+            for r in dict.fromkeys(refs):
+                used.add(r)
+                if r not in catalog:
+                    add("tool", target, f"{target}가 쓰는 도구「{r}」가 도구 목록에 없습니다.")
+    for t in doc.get("tools", []):
+        name = schema.tool_name(doc, t).strip()
+        if not name:
+            add("tool", "project", f"도구 목록의 {t.get('id', '')}에 이름이 없습니다.")
+        if t.get("kind") == "내부 에이전트" and t.get("ref") not in agent_ids:
+            add("tool", "project", f"도구「{name or t.get('id')}」가 가리키는 에이전트가 없습니다.")
+        if t.get("id") not in used:
+            add("tool", "project", f"도구「{name or t.get('id')}」를 쓰는 단계가 없습니다.")
