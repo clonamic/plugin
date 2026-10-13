@@ -7,10 +7,10 @@ description: Gate persistent changes (files, code, config, deploy, publish, prot
 
 The formats are fixed and Korean. Read the one you are about to write and follow it exactly; never improvise a format:
 
-- [references/work-spec.md](references/work-spec.md) — 작업명세서 (요구N·산출N·완료N·제외N): syncs intent
-- [references/dev-spec.md](references/dev-spec.md) — 개발명세서 (변경N·검증N·복구N) and its one-line form: fixes the change
+- [references/work-spec.md](references/work-spec.md) — 작업명세서 (요구N·방법N·이유N·산출N·완료N·제외N): syncs intent, including how each item will be solved and why
+- [references/dev-spec.md](references/dev-spec.md) — 개발명세서 (변경N·이유N·검증N·복구N) and its one-line form: fixes the change, how it is made, and why this way
 
-Both specs live in chat only; never write them to a file. The always-on summary of these rules for any host is [../../AGENTS.md](../../AGENTS.md).
+Both specs live in chat only; never write them to a file. A spec without the how (방법N/변경N concrete enough to follow) and the why (이유N grounded in what you read or what the user said, plus the rejected alternative when there was a real choice) is incomplete — the user would be approving a list of files, not a decision. The always-on summary of these rules for any host is [../../AGENTS.md](../../AGENTS.md).
 
 ## 1. Approval cap
 
