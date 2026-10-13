@@ -41,8 +41,14 @@ class Store:
             """)
 
     # projects
+    # One connection is shared by the server's threads, so reads take the same lock as writes
+    # (an unlocked read during a write can come back empty).
+    def read(self, sql: str, args: tuple = ()) -> list:
+        with self.lock:
+            return self.db.execute(sql, args).fetchall()
+
     def projects(self) -> list[dict]:
-        rows = self.db.execute("SELECT id, doc, updated FROM projects ORDER BY updated DESC").fetchall()
+        rows = self.read("SELECT id, doc, updated FROM projects ORDER BY updated DESC")
         return [{"id": r["id"], "name": json.loads(r["doc"]).get("name", ""), "updated": r["updated"]} for r in rows]
 
     def create(self, name: str, doc: dict | None = None) -> int:
@@ -54,9 +60,10 @@ class Store:
         return cur.lastrowid
 
     def get(self, pid: int) -> dict | None:
-        r = self.db.execute("SELECT * FROM projects WHERE id = ?", (pid,)).fetchone()
-        if not r:
+        rows = self.read("SELECT * FROM projects WHERE id = ?", (pid,))
+        if not rows:
             return None
+        r = rows[0]
         return {"id": r["id"], "doc": schema.migrate(json.loads(r["doc"])), "version": r["version"], "export_path": r["export_path"],
                 "polished": r["polished_version"] == r["version"]}
 
@@ -91,12 +98,12 @@ class Store:
         return cur.lastrowid
 
     def messages(self, pid: int, after: int = 0) -> list[dict]:
-        rows = self.db.execute("SELECT * FROM messages WHERE project_id = ? AND id > ? ORDER BY id", (pid, after)).fetchall()
+        rows = self.read("SELECT * FROM messages WHERE project_id = ? AND id > ? ORDER BY id", (pid, after))
         return [self._message(r) for r in rows]
 
     def message(self, mid: int) -> dict | None:
-        r = self.db.execute("SELECT * FROM messages WHERE id = ?", (mid,)).fetchone()
-        return self._message(r) if r else None
+        rows = self.read("SELECT * FROM messages WHERE id = ?", (mid,))
+        return self._message(rows[0]) if rows else None
 
     @staticmethod
     def _message(r) -> dict:
@@ -123,5 +130,5 @@ class Store:
                             (pid, date, what, why, affected))
 
     def changelog(self, pid: int) -> list[dict]:
-        rows = self.db.execute("SELECT * FROM changelog WHERE project_id = ? ORDER BY id", (pid,)).fetchall()
+        rows = self.read("SELECT * FROM changelog WHERE project_id = ? ORDER BY id", (pid,))
         return [dict(r) for r in rows]

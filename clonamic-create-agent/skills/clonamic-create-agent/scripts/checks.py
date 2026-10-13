@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 import schema
-from graph import END, EXIT, START, back_pairs, by_id, full, reachable
+from graph import END, START, back_pairs, by_id, full, reachable
 
 
 def run(doc: dict) -> list[dict]:
@@ -20,7 +20,6 @@ def run(doc: dict) -> list[dict]:
     _references(agents, links, add)
     _flow(doc, agents, links, add)
     _branches(agents, links, add)
-    _exits(agents, links, add)
     _loops(agents, links, add)
     _data(doc, agents, links, add)
     _glossary(doc, agents, links, add)
@@ -37,6 +36,9 @@ def _required(doc, agents, links, add) -> None:
         for s in a.get("steps", []):
             if fields := schema.missing("step", s):
                 add("required", full(a, s["id"]), f"{full(a, s['id'])}의 필수 항목이 비었습니다: " + ", ".join(fields))
+            for i, row in enumerate(s.get("process", []), 1):
+                if str(row.get("name", "")).strip() and not str(row.get("does", "")).strip():
+                    add("required", full(a, s["id"]), f"{full(a, s['id'])} 과정 {i}행 ‘{row['name']}’에 하는 일이 없습니다.")
         for e in a.get("edges", []):
             if fields := schema.missing("edge", e):
                 add("required", full(a, e["id"]), f"{full(a, e['id'])}의 필수 항목이 비었습니다: " + ", ".join(fields))
@@ -54,7 +56,7 @@ def _references(agents, links, add) -> None:
             add("reference", link["id"], f"{link['id']}의 도착 에이전트가 없습니다.")
     for a in agents:
         steps = {s["id"] for s in a.get("steps", [])}
-        ends = {"from": {START} | steps, "to": steps | {EXIT + x.get("name", "") for x in a.get("exits", [])}}
+        ends = {"from": {START} | steps, "to": steps | {END}}
         for e in a.get("edges", []):
             for side in ("from", "to"):
                 if e.get(side) not in ends[side]:
@@ -88,9 +90,8 @@ def _flow(doc, agents, links, add) -> None:
                 add("flow", target, f"{target} {s.get('name', '')}에 시작에서 닿을 수 없습니다.")
             if not any(e.get("from") == s["id"] for e in edges):
                 add("flow", target, f"{target} {s.get('name', '')}은(는) 나가는 연결이 없는 막다른 단계입니다.")
-        for x in a.get("exits", []):
-            if EXIT + x.get("name", "") not in inside:
-                add("flow", a["id"], f"{a['id']}의 출력「{x.get('name', '')}」로 가는 연결이 없습니다.")
+        if END not in inside:
+            add("flow", a["id"], f"{a['id']} 안에서 끝으로 가는 연결이 없습니다.")
 
 
 def _branches(agents, links, add) -> None:
@@ -99,7 +100,7 @@ def _branches(agents, links, add) -> None:
         for e in a.get("edges", []):
             groups[(a["id"], e.get("from", ""))].append((full(a, e["id"]), e))
     for link in links:
-        groups[("", link.get("from", "") + "/" + link.get("exit", ""))].append((link["id"], link))
+        groups[("", link.get("from", ""))].append((link["id"], link))
     for (_, source), group in groups.items():
         ids = ", ".join(i for i, _ in group)
         kinds = {e.get("kind") for _, e in group}
@@ -107,18 +108,6 @@ def _branches(agents, links, add) -> None:
             add("branch", group[0][0], f"같은 곳에서 나가는 연결({ids})이 여럿이면 모두 조건 연결이어야 합니다.")
         if len(group) == 1 and kinds == {"cond"}:
             add("branch", group[0][0], f"{ids}는 조건 연결이 하나뿐이라, 조건이 맞지 않을 때 갈 곳이 없습니다.")
-
-
-def _exits(agents, links, add) -> None:
-    for a in agents:
-        names = [x.get("name", "") for x in a.get("exits", [])]
-        for name in names:
-            count = sum(1 for link in links if link.get("from") == a["id"] and link.get("exit") == name)
-            if count != 1:
-                add("exit", a["id"], f"{a['id']}의 출력「{name}」에 이어진 에이전트 연결이 {count}개입니다. 1개여야 합니다.")
-        for link in links:
-            if link.get("from") == a["id"] and link.get("exit") not in names:
-                add("exit", link["id"], f"{link['id']}가 {a['id']}에 없는 출력「{link.get('exit', '')}」에서 나갑니다.")
 
 
 def _loops(agents, links, add) -> None:
@@ -131,11 +120,11 @@ def _loops(agents, links, add) -> None:
             target = prefix(e["id"])
             out = known.get(e.get("loop_exit") or "")
             if not out or not str(e.get("loop_limit", "")).strip():
-                add("loop", target, f"{target}는 되돌아가는 연결이라 반복 탈출 연결과 횟수가 있어야 합니다.")
+                add("loop", target, f"{target}는 되돌아가는 연결이라 최대 반복 횟수와 한도를 넘으면 갈 연결이 있어야 합니다.")
             elif out is e or out.get("from") != e.get("from"):
-                add("loop", target, f"{target}의 반복 탈출 연결은 같은 곳에서 나가는 다른 연결이어야 합니다.")
+                add("loop", target, f"{target}의 한도를 넘으면 갈 연결은 같은 곳에서 나가는 다른 연결이어야 합니다.")
             elif not str(e["loop_limit"]).strip().isdigit():
-                add("loop", target, f"{target}의 반복 탈출 횟수는 숫자여야 합니다.")
+                add("loop", target, f"{target}의 최대 반복 횟수는 숫자여야 합니다.")
 
     scan(links, lambda i: i)
     for a in agents:
@@ -158,14 +147,14 @@ def _data(doc, agents, links, add) -> None:
             target = full(a, s["id"])
             for name in s.get("inputs", []):
                 if name and name not in produced:
-                    add("data", target, f"{target}가 받는「{name}」을(를) 내놓는 곳이 없습니다.")
+                    add("data", target, f"{target}의 input ‘{name}’을(를) 만드는 곳이 없습니다.")
             for name in s.get("outputs", []):
                 if name and name not in consumed:
-                    add("data", target, f"{target}가 내놓는「{name}」을(를) 받는 곳이 없습니다.")
+                    add("data", target, f"{target}의 output ‘{name}’을(를) 쓰는 곳이 없습니다.")
     step_outputs = {n for a in agents for s in a.get("steps", []) for n in s.get("outputs", [])}
     for r in doc.get("outputs", []):
         if agents and r.get("item") and r["item"] not in step_outputs:
-            add("data", "project", f"프로젝트가 내놓는「{r['item']}」을(를) 만드는 단계가 없습니다.")
+            add("data", "project", f"프로젝트 output ‘{r['item']}’을(를) 만드는 단계가 없습니다.")
 
 
 def usage(doc: dict) -> dict[str, dict[str, list[str]]]:
@@ -187,17 +176,21 @@ def usage(doc: dict) -> dict[str, dict[str, list[str]]]:
 
 
 def _glossary(doc, agents, links, add) -> None:
-    listed = {g.get("name", "") for g in doc.get("glossary", [])}
-    use = usage(doc)
-    for name, where in sorted(use.items()):
-        if name and len(set(where["made"] + where["used"])) >= 2 and name not in listed:
-            add("glossary", "project", f"「{name}」은(는) 여러 문서에서 쓰여 용어 사전에 있어야 합니다.")
+    """Every data name has an entry in the data dictionary with its structure, so an implementer can build it."""
+    entries = {g.get("name", ""): g for g in doc.get("glossary", [])}
+    names = set(usage(doc)) | {r.get("item", "") for r in doc.get("inputs", []) + doc.get("outputs", [])}
+    for name in sorted(n for n in names if n):
+        g = entries.get(name)
+        if not g:
+            add("glossary", "project", f"데이터 ‘{name}’이(가) 데이터 사전에 없습니다.")
+        elif not any(str(f.get("name", "")).strip() and str(f.get("type", "")).strip() for f in g.get("fields", [])):
+            add("glossary", "project", f"데이터 ‘{name}’의 구조(필드 이름과 형식)가 없습니다.")
     # ponytail: only catches names that differ by spacing or case; meaning-level look-alikes are the reviewer's job
     seen: dict[str, str] = {}
-    for name in sorted(listed | set(use)):
+    for name in sorted(set(entries) | names):
         key = "".join(name.split()).lower()
         if key and key in seen and seen[key] != name:
-            add("glossary", "project", f"「{seen[key]}」와「{name}」은 같은 이름으로 보입니다. 하나로 맞추세요.")
+            add("glossary", "project", f"‘{seen[key]}’와 ‘{name}’은 같은 이름으로 보입니다. 하나로 맞추세요.")
         seen.setdefault(key, name)
 
 
@@ -212,12 +205,12 @@ def _tools(doc, agents, add) -> None:
             for r in dict.fromkeys(refs):
                 used.add(r)
                 if r not in catalog:
-                    add("tool", target, f"{target}가 쓰는 도구「{r}」가 도구 목록에 없습니다.")
+                    add("tool", target, f"{target}가 쓰는 도구 {r}이(가) 도구 목록에 없습니다.")
     for t in doc.get("tools", []):
         name = schema.tool_name(doc, t).strip()
         if not name:
             add("tool", "project", f"도구 목록의 {t.get('id', '')}에 이름이 없습니다.")
         if t.get("kind") == "내부 에이전트" and t.get("ref") not in agent_ids:
-            add("tool", "project", f"도구「{name or t.get('id')}」가 가리키는 에이전트가 없습니다.")
+            add("tool", "project", f"도구 ‘{name or t.get('id')}’가 가리키는 에이전트가 없습니다.")
         if t.get("id") not in used:
-            add("tool", "project", f"도구「{name or t.get('id')}」를 쓰는 단계가 없습니다.")
+            add("tool", "project", f"도구 ‘{name or t.get('id')}’를 쓰는 단계가 없습니다.")

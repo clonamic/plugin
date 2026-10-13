@@ -1,14 +1,14 @@
 """Graph helpers shared by checks and render.
 
-Agent level: nodes are "start", agent ids ("A1"), and "end". A link leaves an agent through one of its exits.
-Inside an agent: nodes are "start", step ids ("N1"), and "exit:<exit name>".
+Agent level: nodes are "start", agent ids ("A1"), and "end"; links carry the conditions between agents.
+Inside an agent: nodes are "start", step ids ("N1"), and "end" (the agent is done; its outgoing links decide what next).
 """
 
 from __future__ import annotations
 
 import re
 
-START, END, EXIT = "start", "end", "exit:"
+START, END = "start", "end"
 
 
 def nkey(ident: str) -> tuple:
@@ -31,8 +31,8 @@ def full(agent: dict, ident: str) -> str:
 def node_name(agent: dict, ref: str) -> str:
     if ref == START:
         return "시작"
-    if ref.startswith(EXIT):
-        return ref[len(EXIT):]
+    if ref == END:
+        return "끝"
     step = find(agent.get("steps", []), ref)
     return step.get("name", "") if step else ref
 
@@ -56,7 +56,7 @@ def edge_name(agent: dict, edge: dict) -> str:
 def link_name(doc: dict, link: dict) -> str:
     if link.get("name", "").strip():
         return link["name"].strip()
-    return link.get("exit") or agent_name(doc, link.get("to", ""))
+    return agent_name(doc, link.get("to", ""))
 
 
 def reachable(start: str, pairs: list[tuple[str, str]]) -> set[str]:

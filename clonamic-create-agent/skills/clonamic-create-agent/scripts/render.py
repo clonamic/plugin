@@ -7,10 +7,10 @@ import posixpath
 import re
 
 from checks import usage
-from graph import END, EXIT, START, agent_name, by_id, edge_name, find, full, link_name, node_name
+from graph import END, START, agent_name, by_id, edge_name, find, full, link_name, node_name
 from schema import EDGE_KINDS, FORMAT, tool_name
 
-WARNING = "도구가 생성한 문서입니다. 수정은 편집기에서 하세요."
+WARNING = "clonamic-create-agent 편집기에서 만든 문서다. 고칠 때는 편집기에서 고친다."
 
 
 def slug(text: str) -> str:
@@ -117,42 +117,69 @@ def _names(names: list[str], src: str) -> str:
     return ", ".join(md_link(n, src, "GLOSSARY.md") for n in names if n)
 
 
+def _shape(doc: dict, name: str) -> str:
+    """One line of a data item's structure from the data dictionary: field: type, ..."""
+    g = next((x for x in doc.get("glossary", []) if x.get("name") == name), None)
+    fields = [f for f in (g or {}).get("fields", []) if str(f.get("name", "")).strip()]
+    return ", ".join(f"{f['name'].strip()}: {str(f.get('type', '')).strip()}" + ("" if f.get("required", True) else "(선택)")
+                     for f in fields)
+
+
+def _io_table(doc: dict, src: str, rows: list[tuple[str, list[str]]]) -> list[str]:
+    """input / output table: one row per data item with its structure."""
+    body = [[kind, md_link(n, src, "GLOSSARY.md"), _shape(doc, n)] for kind, names in rows for n in names if n]
+    return table(["구분", "데이터", "구조"], body)
+
+
+def _agent_io(links: list[dict], aid: str) -> tuple[list[str], list[str]]:
+    got = list(dict.fromkeys(n for x in links if x.get("to") == aid for n in x.get("passes", [])))
+    gave = list(dict.fromkeys(n for x in links if x.get("from") == aid for n in x.get("passes", [])))
+    return got, gave
+
+
+def _cond_text(item: dict) -> str:
+    return (item.get("condition", "") or item.get("name", "")).strip() if item.get("kind") == "cond" else "항상"
+
+
 def _project(doc, p, agents, links, date, polished) -> str:
     src = "README.md"
-    head = f"> {WARNING} · 내보낸 날짜 {date}" + ("" if polished else " · 다듬기 미적용")
+    head = f"> {WARNING} 내보낸 날짜 {date}" + ("" if polished else " · 다듬기 미적용")
     out = [f"# {doc.get('name', '')}", head, "", doc.get("summary", "")]
-    intent = [f"- 원하는 것: {doc.get('want', '').strip()}"]
+    need = [f"- 요구사항: {doc.get('want', '').strip()}"]
     if doc.get("background", "").strip():
-        intent.append(f"- 배경: {doc['background'].strip()}")
-    intent.append("- 성공 기준:")
-    intent += [f"  - {x}" for x in doc.get("success", []) if x.strip()]
-    section(out, "의도", intent)
-    rows = [["입력", r.get("item"), r.get("desc")] for r in doc.get("inputs", [])]
-    rows += [["출력", r.get("item"), r.get("desc")] for r in doc.get("outputs", [])]
-    section(out, "입력과 출력", table(["구분", "항목", "설명"], rows))
+        need.append(f"- 배경: {doc['background'].strip()}")
+    need.append("- 성공 기준:")
+    need += [f"  - {x}" for x in doc.get("success", []) if x.strip()]
+    section(out, "요구사항", need)
+    rows = [["input", md_link(r.get("item", ""), src, "GLOSSARY.md") if r.get("item") else "", r.get("desc"), _shape(doc, r.get("item", ""))]
+            for r in doc.get("inputs", [])]
+    rows += [["output", md_link(r.get("item", ""), src, "GLOSSARY.md") if r.get("item") else "", r.get("desc"), _shape(doc, r.get("item", ""))]
+             for r in doc.get("outputs", [])]
+    section(out, "input / output", table(["구분", "데이터", "설명", "구조"], rows))
     scope = []
     if doc.get("not_doing", "").strip():
-        scope.append(f"- 하지 않는 것: {doc['not_doing'].strip()}")
+        scope.append(f"- 범위 밖: {doc['not_doing'].strip()}")
     if [x for x in doc.get("constraints", []) if x.strip()]:
         scope.append("- 제약:")
         scope += [f"  - {x}" for x in doc["constraints"] if x.strip()]
     if scope:
         section(out, "범위와 제약", scope)
     section(out, "전체 흐름", ["```mermaid", *_agent_mermaid(doc, agents, links), "```"])
-    section(out, "에이전트", table(["번호", "이름", "역할"],
-                                [[md_link(a["id"], src, p.agent(a)), a.get("name"), a.get("role")] for a in agents]))
-    section(out, "연결", table(["번호", "출발 → 도착", "종류", "조건 요약"],
-                             [[md_link(x["id"], src, p.link(x)), _link_route(doc, x), EDGE_KINDS.get(x.get("kind"), ""),
-                               link_name(doc, x) if x.get("kind") == "cond" else (x.get("exit") or "항상")] for x in links]))
+    section(out, "에이전트", table(["번호", "이름", "역할", "input", "output"],
+                                [[md_link(a["id"], src, p.agent(a)), a.get("name"), a.get("role"),
+                                  *(_names(x, src) for x in _agent_io(links, a["id"]))] for a in agents]))
+    section(out, "연결", table(["번호", "출발 → 도착", "조건", "전달 데이터"],
+                             [[md_link(x["id"], src, p.link(x)), _link_route(doc, x), _cond_text(x), _names(x.get("passes", []), src)]
+                              for x in links]))
     users = tool_users(doc)
-    section(out, "도구", table(["번호", "종류", "이름", "용도", "위치·연결", "쓰는 곳", "대안"],
+    section(out, "도구", table(["번호", "종류", "이름", "용도", "위치·접속", "쓰는 곳", "대안"],
                              [[t.get("id"), t.get("kind"), tool_name(doc, t), t.get("purpose"), t.get("location"),
                                ", ".join(users.get(t.get("id"), [])), t.get("alternative")] for t in doc.get("tools", [])]))
     if doc.get("human_points"):
-        section(out, "사람 개입 지점", table(["지점", "사람이 하는 일", "그동안 흐름은"],
+        section(out, "사람 확인 지점", table(["지점", "사람이 하는 일", "그동안 흐름"],
                                        [[r.get("point"), r.get("does"), r.get("meanwhile")] for r in doc["human_points"]]))
-    section(out, "검증 시나리오", table(["시나리오", "입력", "거치는 경로", "기대 결과"],
-                                  [[r.get("name"), r.get("input"), r.get("path"), r.get("expected")]
+    section(out, "검증 시나리오", table(["시나리오", "input", "경로", "기대 결과", "확인하는 성공 기준"],
+                                  [[r.get("name"), r.get("input"), r.get("path"), r.get("expected"), r.get("criteria")]
                                    for r in doc.get("scenarios", [])]))
     if doc.get("decisions"):
         section(out, "설계 결정", table(["결정", "이유", "버린 대안"],
@@ -162,14 +189,12 @@ def _project(doc, p, agents, links, date, polished) -> str:
     return "\n".join(out)
 
 
+def _end(doc, ref: str) -> str:
+    return agent_name(doc, ref) if ref in (START, END) else f"{ref} {agent_name(doc, ref)}"
+
+
 def _link_route(doc, link) -> str:
-    start = agent_name(doc, link.get("from", ""))
-    if link.get("from") not in (START, END) and link.get("exit"):
-        start = f"{link['from']} {start} 출력「{link['exit']}」"
-    end = agent_name(doc, link.get("to", ""))
-    if link.get("to") not in (START, END):
-        end = f"{link['to']} {end}"
-    return f"{start} → {end}"
+    return f"{_end(doc, link.get('from', ''))} → {_end(doc, link.get('to', ''))}"
 
 
 def _agent_mermaid(doc, agents, links) -> list[str]:
@@ -178,17 +203,16 @@ def _agent_mermaid(doc, agents, links) -> list[str]:
     out.append("  E((끝))")
     ids = {START: "S", END: "E"}
     for x in links:
-        label = x["id"] + (f": {link_name(doc, x)}" if x.get("kind") == "cond" or x.get("exit") else "")
+        label = x["id"] + (f": {link_name(doc, x)}" if x.get("kind") == "cond" else "")
         out.append(f'  {ids.get(x.get("from"), x.get("from"))} -- "{mlabel(label)}" --> {ids.get(x.get("to"), x.get("to"))}')
     return out
 
 
 def _inner_mermaid(a: dict) -> list[str]:
-    exits = {EXIT + x.get("name", ""): f"X{i + 1}" for i, x in enumerate(a.get("exits", []))}
     out = ["flowchart TD", "  S([시작])"]
     out += [f'  {s["id"]}["{mlabel(s["id"] + " " + s.get("name", ""))}"]' for s in by_id(a.get("steps", []))]
-    out += [f'  {mid}(("{mlabel(ref[len(EXIT):])}"))' for ref, mid in exits.items()]
-    ids = {START: "S", **exits}
+    out.append("  E((끝))")
+    ids = {START: "S", END: "E"}
     for e in by_id(a.get("edges", [])):
         label = e["id"] + (f": {edge_name(a, e)}" if e.get("kind") == "cond" else "")
         out.append(f'  {ids.get(e.get("from"), e.get("from"))} -- "{mlabel(label)}" --> {ids.get(e.get("to"), e.get("to"))}')
@@ -198,29 +222,26 @@ def _inner_mermaid(a: dict) -> list[str]:
 def _agent(doc, p, a, links) -> str:
     src = p.agent(a)
     out = [f"# {a['id']} · {a.get('name', '')}", a.get("role", "")]
-    section(out, "의도", [a.get("intent", "")])
+    section(out, "필요한 이유", [a.get("intent", "")])
     if a.get("not_doing", "").strip():
-        section(out, "맡지 않는 것", [a["not_doing"]])
+        section(out, "범위 밖", [a["not_doing"]])
+    got, gave = _agent_io(links, a["id"])
+    section(out, "input / output", _io_table(doc, src, [("input", got), ("output", gave)]))
     incoming = [x for x in links if x.get("to") == a["id"]]
     outgoing = [x for x in links if x.get("from") == a["id"]]
-    got = list(dict.fromkeys(n for x in incoming for n in x.get("passes", [])))
-    body = table(["데이터", "들어오는 연결"], [[_names(got, src),
-                                          ", ".join(md_link(f"{x['id']} {link_name(doc, x)}", src, p.link(x)) for x in incoming)]])
-    section(out, "입력", body)
-    rows = []
-    for x in a.get("exits", []):
-        link = next((y for y in outgoing if y.get("exit") == x.get("name")), None)
-        rows.append([x.get("name"), x.get("when"), _names(link.get("passes", []), src) if link else "",
-                     md_link(f"{link['id']} {link_name(doc, link)}", src, p.link(link)) if link else ""])
-    section(out, "출력", table(["출력", "언제", "넘기는 것", "이어지는 연결"], rows))
+    section(out, "들어오는 연결", table(["연결", "출발", "전달 데이터"],
+                                  [[md_link(f"{x['id']} {link_name(doc, x)}", src, p.link(x)), _end(doc, x.get("from", "")),
+                                    _names(x.get("passes", []), src)] for x in incoming]))
+    section(out, "다음 연결", table(["연결", "도착", "조건", "전달 데이터"],
+                                [[md_link(f"{x['id']} {link_name(doc, x)}", src, p.link(x)), _end(doc, x.get("to", "")),
+                                  _cond_text(x), _names(x.get("passes", []), src)] for x in outgoing]))
     section(out, "내부 흐름", ["```mermaid", *_inner_mermaid(a), "```"])
-    section(out, "단계", table(["번호", "이름", "유형", "한 줄 요약"],
+    section(out, "단계", table(["번호", "이름", "유형", "요약"],
                              [[md_link(full(a, s["id"]), src, p.step(a, s)), s.get("name"), s.get("type"), s.get("summary")]
                               for s in by_id(a.get("steps", []))]))
-    section(out, "연결", table(["번호", "출발 → 도착", "종류", "조건 요약"],
+    section(out, "연결", table(["번호", "출발 → 도착", "조건"],
                              [[md_link(full(a, e["id"]), src, p.edge(a, e)),
-                               f"{node_name(a, e.get('from', ''))} → {node_name(a, e.get('to', ''))}",
-                               EDGE_KINDS.get(e.get("kind"), ""), edge_name(a, e) if e.get("kind") == "cond" else "항상"]
+                               f"{node_name(a, e.get('from', ''))} → {node_name(a, e.get('to', ''))}", _cond_text(e)]
                               for e in by_id(a.get("edges", []))]))
     users = tool_users(doc)
     used = [t for t in doc.get("tools", []) if any(u.startswith(f"{a['id']}-") for u in users.get(t.get("id"), []))]
@@ -230,25 +251,22 @@ def _agent(doc, p, a, links) -> str:
                                    ", ".join(u for u in users[t["id"]] if u.startswith(f"{a['id']}-"))] for t in used]))
     _fixed(out, a)
     if a.get("paths", "").strip():
-        section(out, "주요 경로", [a["paths"]])
+        section(out, "정상·예외 흐름", [a["paths"]])
     if a.get("notes", "").strip():
-        section(out, "공통 주의점", [a["notes"]])
+        section(out, "공통 제약", [a["notes"]])
     return "\n".join(out)
 
 
 def _fixed(out: list[str], obj: dict) -> None:
-    body = [f"- {label}: {obj[key].strip()}" for key, label in (("fixed", "고정"), ("discretion", "재량"))
-            if obj.get(key, "").strip()]
-    if body:
-        section(out, "고정과 재량", body)
+    for key, title in (("fixed", "지켜야 할 것"), ("discretion", "구현자가 정할 것")):
+        if obj.get(key, "").strip():
+            section(out, title, [obj[key].strip()])
 
 
 def _node_link(p, a, ref: str, src: str) -> str:
     step = find(a.get("steps", []), ref)
     if step:
         return md_link(f"{full(a, ref)} {step.get('name', '')}", src, p.step(a, step))
-    if ref.startswith(EXIT):
-        return f"출력「{ref[len(EXIT):]}」"
     return node_name(a, ref)
 
 
@@ -273,41 +291,47 @@ def _step(doc, p, a, s) -> str:
     out = [f"# {full(a, s['id'])} · {s.get('name', '')}",
            f"`{s.get('type', '')}` · 소속 {md_link(a['id'] + ' ' + a.get('name', ''), src, p.agent(a))}",
            s.get("summary", "")]
-    section(out, "의도", [s.get("intent", "")])
-    section(out, "입력과 출력", table(["구분", "항목"], [["입력", _names(s.get("inputs", []), src)],
-                                                    ["출력", _names(s.get("outputs", []), src)]]))
+    section(out, "필요한 이유", [s.get("intent", "")])
+    section(out, "input / output", _io_table(doc, src, [("input", s.get("inputs", [])), ("output", s.get("outputs", []))]))
     steps = [x for x in s.get("process", []) if str(x.get("name", "")).strip()]
     flow = " → ".join(f"{i}. {x['name'].strip()}" for i, x in enumerate(steps, 1))
-    section(out, "과정", [flow, "", *table(["순서", "단위", "이름", "하는 일", "도구"],
-                                          [[i, x.get("unit"), x.get("name"), x.get("does"), _tool_label(doc, x["tool"]) if x.get("tool") else ""]
+    section(out, "과정", [flow, "", *table(["순서", "단위", "이름", "하는 일", "input", "output", "도구"],
+                                          [[i, x.get("unit"), x.get("name"), x.get("does"), x.get("input"), x.get("output"),
+                                            _tool_label(doc, x["tool"]) if x.get("tool") else ""]
                                            for i, x in enumerate(steps, 1)])])
+    if [x for x in s.get("criteria", []) if x.strip()]:
+        section(out, "판단 기준", [f"- {x}" for x in s["criteria"] if x.strip()])
+    if s.get("prompt", "").strip():
+        section(out, "AI 지시", [s["prompt"].strip()])
     if s.get("tools"):
         section(out, "도구", [f"- {_tool_label(doc, t)}" for t in s["tools"]])
     section(out, "완료 기준", [f"- [ ] {x}" for x in s.get("done", []) if x.strip()])
     nxt = [e for e in by_id(a.get("edges", [])) if e.get("from") == s["id"]]
-    section(out, "다음 연결", table(["연결", "조건 요약"],
+    section(out, "다음 연결", table(["연결", "도착", "조건", "전달 데이터"],
                                 [[md_link(f"{full(a, e['id'])} {edge_name(a, e)}", src, p.edge(a, e)),
-                                  edge_name(a, e) if e.get("kind") == "cond" else "항상"] for e in nxt]))
-    _fixed(out, s)
-    for key, title in (("example", "예시"), ("cautions", "주의점"), ("on_fail", "실패 시")):
+                                  _node_link(p, a, e.get("to", ""), src), _cond_text(e), _names(e.get("passes", []), src)] for e in nxt]))
+    for key, title in (("example", "예시"), ("on_fail", "실패 처리")):
         if s.get(key, "").strip():
             section(out, title, [s[key].strip()])
+    _fixed(out, s)
+    if s.get("cautions", "").strip():
+        section(out, "주의점", [s["cautions"].strip()])
     return "\n".join(out)
 
 
 def _condition(out, item, siblings, link_to, loop_target) -> None:
-    body = []
+    rows = []
     if item.get("kind") == "cond":
-        body += [item.get("condition", "").strip(), f"판단: {item.get('judge', '')}"]
+        rows += [["조건", item.get("condition", "").strip()], ["판단 방식", item.get("judge", "")]]
     if item.get("loop_exit") and loop_target:
-        body.append(f"이 되돌림이 {str(item.get('loop_limit', '')).strip()}번째면 대신 {loop_target}로 간다.")
+        rows += [["최대 반복 횟수", str(item.get("loop_limit", "")).strip()], ["한도를 넘으면", loop_target]]
     others = [x for x in siblings if x["id"] != item["id"]]
     if item.get("kind") == "cond" and others:
-        body.append("같은 출발의 다른 연결: " + ", ".join(f"{link_to(x)} ({x.get('name', '') or '항상'})" for x in others))
-    if body:
-        section(out, "조건", [line for b in body for line in (b, "")][:-1])
+        rows.append(["같은 출발의 다른 연결", ", ".join(f"{link_to(x)} ({_cond_text(x)})" for x in others)])
+    if rows:
+        section(out, "조건", table(["항목", "내용"], rows))
     if item.get("kind") == "cond" and item.get("intent", "").strip():
-        section(out, "의도", [item["intent"].strip()])
+        section(out, "필요한 이유", [item["intent"].strip()])
 
 
 def _edge(p, a, e) -> str:
@@ -322,7 +346,7 @@ def _edge(p, a, e) -> str:
         return md_link(f"{full(a, x['id'])} {edge_name(a, x)}", src, p.edge(a, x))
 
     _condition(out, e, siblings, link_to, link_to(target) if target else "")
-    section(out, "넘기는 것", [f"- {md_link(n, src, 'GLOSSARY.md')}" for n in e.get("passes", []) if n])
+    section(out, "전달 데이터", [f"- {md_link(n, src, 'GLOSSARY.md')}" for n in e.get("passes", []) if n])
     return "\n".join(out)
 
 
@@ -333,31 +357,38 @@ def _link(doc, p, link, links) -> str:
         a = find(doc.get("agents", []), ref)
         return md_link(f"{ref} {a.get('name', '')}", src, p.agent(a)) if a else agent_name(doc, ref)
 
-    start = end(link.get("from", "")) + (f" 출력「{link['exit']}」" if link.get("exit") else "")
     out = [f"# {link['id']} · {agent_name(doc, link.get('from', ''))} → {agent_name(doc, link.get('to', ''))}", ""]
-    out += table(["출발", "도착", "종류"], [[start, end(link.get("to", "")), EDGE_KINDS.get(link.get("kind"), "")]])
-    siblings = [x for x in links if x.get("from") == link.get("from") and x.get("exit") == link.get("exit")]
+    out += table(["출발", "도착", "종류"], [[end(link.get("from", "")), end(link.get("to", "")), EDGE_KINDS.get(link.get("kind"), "")]])
+    siblings = [x for x in links if x.get("from") == link.get("from")]
     target = find(links, link.get("loop_exit", ""))
 
     def link_to(x: dict) -> str:
         return md_link(f"{x['id']} {link_name(doc, x)}", src, p.link(x))
 
     _condition(out, link, siblings, link_to, link_to(target) if target else "")
-    section(out, "넘기는 것", [f"- {md_link(n, src, 'GLOSSARY.md')}" for n in link.get("passes", []) if n])
+    section(out, "전달 데이터", [f"- {md_link(n, src, 'GLOSSARY.md')}" for n in link.get("passes", []) if n])
     return "\n".join(out)
 
 
 def _glossary(doc) -> str:
     use = usage(doc)
     inputs = {r.get("item") for r in doc.get("inputs", [])}
+    out = ["# 데이터 사전", ""]
     rows = []
     for g in doc.get("glossary", []):
         name = g.get("name", "")
         made = use.get(name, {}).get("made", [])
-        first = "프로젝트 입력" if name in inputs else (made[0] if made else "")
+        first = "프로젝트 input" if name in inputs else (made[0] if made else "")
         used = list(dict.fromkeys(use.get(name, {}).get("used", [])))
-        rows.append([name, g.get("meaning"), g.get("contents"), first, ", ".join(used)])
-    return "\n".join(["# 용어 사전", "", *table(["이름", "뜻", "담기는 내용", "처음 생기는 곳", "쓰이는 곳"], rows)])
+        rows.append([name, g.get("meaning"), first, ", ".join(used)])
+    out += table(["이름", "뜻", "처음 생기는 곳", "쓰이는 곳"], rows)
+    for g in doc.get("glossary", []):
+        fields = [f for f in g.get("fields", []) if str(f.get("name", "")).strip()]
+        section(out, g.get("name", ""), [g.get("meaning", ""), *([""] + [g["contents"].strip()] if g.get("contents", "").strip() else []), "",
+                                         *table(["필드", "형식", "필수", "설명", "예"],
+                                                [[f.get("name"), f.get("type"), "예" if f.get("required", True) else "아니오",
+                                                  f.get("desc"), f.get("example")] for f in fields])])
+    return "\n".join(out)
 
 
 def _changelog(rows: list[dict]) -> str:
