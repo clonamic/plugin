@@ -45,13 +45,14 @@
 
 Rules the checks enforce (see `cagent.py check`):
 
-- Ids: agents `A1…`, steps `N1…` and edges `L1…` inside each agent, links `L1…` at the agent level. Number in flow order from the start; never reuse an id.
-- `tools` is the project's tool catalog; steps and process items reference catalog ids. Every referenced id must exist, every catalog tool must be used by some step or process item, and an internal-agent tool must point at an existing agent.
+- Ids: agents `A1…`, steps `N1…` and edges `L1…` inside each agent, links `L1…` at the agent level, tools `T1…`. Number in flow order from the start; never reuse an id. `put` refuses a document with a missing, malformed, or repeated id, a repeated or empty exit name, or a field of the wrong type (text fields are strings, list fields are lists; never `null`).
+- `tools` is the project's tool catalog and needs at least one entry (an LLM-only step uses a `모델` tool). Steps and process items reference catalog ids. Every referenced id must exist, every catalog tool needs a name and must be used by some step or process item, and an internal-agent tool must point at an existing agent.
+- Flow: every agent is reachable from `start` and some link reaches `end`; every agent has steps; inside an agent every step is reachable from `start`, has an outgoing edge (no dead end), and every exit is reached. Edges leave `start` or a step and arrive at a step or `exit:<name>`.
 - A step needs at least one named `process` item. Process names and tool locations may be implementation names (files, modules, classes, functions, endpoints); every other field stays in plain language.
 - Every exit (출력) of an agent has exactly one link leaving through it; every link from an agent names one of its exits.
 - Several edges out of the same node must all be `cond`; a single `cond` edge alone is an error (no path when the condition fails).
-- An edge that returns to an earlier node needs `loop_exit` (another edge id in the same list) and `loop_limit`.
+- An edge that returns to an earlier node needs `loop_exit` (another edge leaving the same node) and `loop_limit` (a whole number).
 - Every step `inputs` name is produced somewhere (a project input or a step output); every output is consumed (a step input, an edge/link `passes`, or a project output).
-- A data name used in two or more documents must be in `glossary`.
-- Required fields: see the `*` marks in the editor; conditional edges also need `name`, `condition`, `judge`, `intent`.
+- A data name used in two or more documents must be in `glossary`. Two names that differ only by spacing or case are flagged as the same name.
+- Required fields: see the `*` marks in the editor (project: `scenarios` and `tools` too; every edge and link: `passes`); conditional edges also need `name`, `condition`, `judge`, `intent`.
 - Older documents (`does` lines, tool rows with `capability`/`recommended`) are converted automatically when read; always write the current shape.

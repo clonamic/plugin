@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from schema import FORMAT
@@ -23,11 +24,19 @@ def resolve(path: str) -> Path:
     home = Path.home().resolve()
     if target in (Path(target.anchor), home) or target in home.parents:
         raise ExportError("홈 폴더나 최상위 폴더에는 바로 내보낼 수 없습니다. 하위 폴더를 지정하세요.")
-    if target == data_dir().resolve() or data_dir().resolve() in target.parents:
+    # samefile also matches a differently cased path on a case-insensitive disk (macOS, Windows)
+    if any(_same(p, data_dir()) for p in (target, *target.parents)):
         raise ExportError("편집기 데이터 폴더 안에는 내보낼 수 없습니다.")
     if target.exists() and not target.is_dir():
         raise ExportError("저장 경로가 폴더가 아닙니다.")
     return target
+
+
+def _same(a: Path, b: Path) -> bool:
+    try:
+        return a.exists() and b.exists() and a.samefile(b)
+    except OSError:
+        return False
 
 
 def inside(target: Path, rel) -> bool:
@@ -49,10 +58,19 @@ def previous(target: Path) -> list[str]:
     return [rel for rel in design["files"] if inside(target, rel)] + ["design.json"]
 
 
+SCAN_LIMIT = 2000
+
+
 def plan(path: str, files: dict[str, str]) -> dict:
     target = resolve(path)
     old = set(previous(target))
-    existing = {p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file()} if target.exists() else set()
+    existing: set[str] = set()
+    if target.exists():  # a big folder (a repo, ~/Documents) is not walked to the end
+        for p in target.rglob("*"):
+            if p.is_file():
+                existing.add(p.relative_to(target).as_posix())
+                if len(existing) > SCAN_LIMIT:
+                    raise ExportError("이미 파일이 아주 많은 폴더입니다. 비어 있는 새 하위 폴더를 지정하세요.")
     foreign = sorted(existing - old)
     clash = sorted(set(files) & set(foreign))
     return {"path": str(target), "foreign": foreign, "clash": clash, "remove": sorted(old - set(files))}
@@ -65,12 +83,19 @@ def write(path: str, files: dict[str, str]) -> dict:
     target = Path(info["path"])
     if bad := [rel for rel in files if not inside(target, rel)]:
         raise ExportError("폴더 밖을 가리키는 파일 이름이 있어 내보내지 않습니다: " + ", ".join(bad))
-    for rel in info["remove"]:
-        (target / rel).unlink(missing_ok=True)
-    for rel, text in files.items():
-        out = target / rel
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(text, encoding="utf-8")
+    # New files first (each via a temp file and an atomic rename), old ones after, so a failure never loses the last export.
+    try:
+        for rel, text in files.items():
+            out = target / rel
+            out.parent.mkdir(parents=True, exist_ok=True)
+            tmp = out.with_name(out.name + ".tmp")
+            tmp.write_text(text, encoding="utf-8", newline="\n")  # same bytes on every OS
+            os.replace(tmp, out)
+        for rel in info["remove"]:
+            if rel not in files:
+                (target / rel).unlink(missing_ok=True)
+    except OSError as exc:
+        raise ExportError(f"파일을 쓰지 못했습니다: {exc}") from exc
     for folder in sorted({(target / r).parent for r in info["remove"]}, key=lambda p: len(p.parts), reverse=True):
         while folder != target and folder.exists() and not any(folder.iterdir()):
             folder.rmdir()

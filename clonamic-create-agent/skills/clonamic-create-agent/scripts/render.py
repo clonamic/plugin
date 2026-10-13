@@ -14,8 +14,10 @@ WARNING = "도구가 생성한 문서입니다. 수정은 편집기에서 하세
 
 
 def slug(text: str) -> str:
-    text = re.sub(r'[\\/:*?"<>|#\[\]()]', "", text or "").strip()
-    return re.sub(r"\s+", "_", text) or "이름없음"
+    """A file or folder name: no path or link characters, at most 40 characters (Hangul is 3 bytes each and
+    a name may hold 255 bytes), and no trailing dot or space (Windows drops them, which would break links)."""
+    text = re.sub(r'[\\/:*?"<>|#\[\]()\x00-\x1f]', "", text or "").strip()
+    return re.sub(r"\s+", "_", text)[:40].rstrip(". _") or "이름없음"
 
 
 def cell(text) -> str:
@@ -28,7 +30,9 @@ def table(head: list[str], rows: list[list]) -> list[str]:
 
 
 def mlabel(text: str) -> str:
-    return str(text).replace('"', "'").replace("\n", " ")
+    """Text inside a Mermaid "label": entity codes for characters Mermaid would read as markup."""
+    text = re.sub(r"\s+", " ", str(text)).strip()
+    return "".join({"\"": "#quot;", "<": "#lt;", ">": "#gt;", "&": "#amp;", "#": "#35;"}.get(c, c) for c in text)
 
 
 class Paths:
@@ -80,6 +84,7 @@ def rel(src: str, dst: str) -> str:
 
 
 def md_link(text: str, src: str, dst: str) -> str:
+    text = re.sub(r"\s+", " ", str(text)).replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
     return f"[{text}]({rel(src, dst)})"
 
 
@@ -122,9 +127,9 @@ def _project(doc, p, agents, links, date, polished) -> str:
     intent.append("- 성공 기준:")
     intent += [f"  - {x}" for x in doc.get("success", []) if x.strip()]
     section(out, "의도", intent)
-    rows = [["받는 것", r.get("item"), r.get("desc")] for r in doc.get("inputs", [])]
-    rows += [["내놓는 것", r.get("item"), r.get("desc")] for r in doc.get("outputs", [])]
-    section(out, "받는 것 / 내놓는 것", table(["구분", "항목", "설명"], rows))
+    rows = [["입력", r.get("item"), r.get("desc")] for r in doc.get("inputs", [])]
+    rows += [["출력", r.get("item"), r.get("desc")] for r in doc.get("outputs", [])]
+    section(out, "입력과 출력", table(["구분", "항목", "설명"], rows))
     scope = []
     if doc.get("not_doing", "").strip():
         scope.append(f"- 하지 않는 것: {doc['not_doing'].strip()}")
@@ -199,7 +204,7 @@ def _agent(doc, p, a, links) -> str:
     incoming = [x for x in links if x.get("to") == a["id"]]
     outgoing = [x for x in links if x.get("from") == a["id"]]
     got = list(dict.fromkeys(n for x in incoming for n in x.get("passes", [])))
-    body = table(["받는 것", "들어오는 연결"], [[_names(got, src),
+    body = table(["데이터", "들어오는 연결"], [[_names(got, src),
                                           ", ".join(md_link(f"{x['id']} {link_name(doc, x)}", src, p.link(x)) for x in incoming)]])
     section(out, "입력", body)
     rows = []

@@ -20,8 +20,8 @@ REPO = "https://github.com/clonamic/plugin"
 INSTALL = {
     "claude": ["claude plugin marketplace add clonamic/plugin", "claude plugin install clonamic-korean@clonamic"],
     "codex": ["codex plugin marketplace add clonamic/plugin", "codex plugin add clonamic-korean@clonamic"],
-    "cursor": [f"git clone --depth 1 {REPO} /tmp/clonamic-plugin && "
-               "cp -R /tmp/clonamic-plugin/clonamic-korean ~/.cursor/plugins/local/clonamic-korean"],
+    "cursor": [f'tmp="$(mktemp -d)" && git clone --depth 1 {REPO} "$tmp" && mkdir -p ~/.cursor/plugins/local && '
+               'cp -R "$tmp/clonamic-korean" ~/.cursor/plugins/local/clonamic-korean && rm -rf "$tmp"'],
     "grok": [f"grok plugin install {REPO}#clonamic-korean --trust", "grok plugin enable clonamic-korean"],
 }
 RULES = ["ai-tells.md", "rewriting.md", "preserve.md", "norms.md", "plain-korean.md"]
@@ -54,8 +54,11 @@ def check(text: str | None = None) -> tuple[dict, int]:
     with tempfile.TemporaryDirectory(prefix="cagent-korean-") as tmp:  # removed when the check ends
         draft = Path(tmp) / "draft.md"
         draft.write_text(text, encoding="utf-8")
-        proc = subprocess.run([sys.executable, str(script), "--after", str(draft), "--json"],
-                              capture_output=True, text=True, encoding="utf-8")
+        try:
+            proc = subprocess.run([sys.executable, str(script), "--after", str(draft), "--json"],
+                                  capture_output=True, text=True, encoding="utf-8", timeout=60)
+        except subprocess.TimeoutExpired:
+            return info | {"checked": False, "error": "검사기가 60초 안에 끝나지 않았습니다."}, 0
     try:
         report = json.loads(proc.stdout)
     except ValueError:

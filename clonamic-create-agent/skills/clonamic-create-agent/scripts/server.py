@@ -26,6 +26,7 @@ from store import Conflict, Store, data_dir
 VERSION = "0.1.0"
 APP = "clonamic-create-agent"
 WEB = Path(__file__).resolve().parent.parent / "assets" / "web"
+MAX_BODY = 5_000_000
 TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".json": "application/json", ".svg": "image/svg+xml"}
 
 
@@ -65,6 +66,9 @@ class App:
             empty_since = empty_since or now
             if (ever and now - empty_since >= self.grace) or (not ever and now - started >= self.first):
                 with self.cond:
+                    if self.clients:  # a tab opened just now
+                        empty_since = None
+                        continue
                     self.closing = True
                     self.cond.notify_all()
                 time.sleep(0.3)
@@ -83,7 +87,7 @@ class App:
                     return {"status": "closed"}
                 if self.tokens.get(pid) != token:
                     return {"status": "replaced"}
-            msg = self.store.take(pid)
+                msg = self.store.take(pid)  # under the same lock as the token check, so a replaced waiter takes nothing
             if msg:
                 return {"status": "message", "message": msg}
             left = deadline - time.time()
@@ -112,11 +116,21 @@ def make_handler(app: App):
 
         def body(self) -> dict:
             size = int(self.headers.get("Content-Length") or 0)
-            return json.loads(self.rfile.read(size) or b"{}") if size else {}
+            if not 0 <= size <= MAX_BODY:
+                raise ValueError("body size")
+            data = json.loads(self.rfile.read(size) or b"{}") if size else {}
+            if not isinstance(data, dict):
+                raise ValueError("not an object")
+            return data
 
         def allowed(self) -> bool:
+            """Only this machine's page or CLI: the Host blocks DNS rebinding, Sec-Fetch-Site blocks other sites' pages."""
             host = (self.headers.get("Host") or "").split(":")[0]
-            return host in ("127.0.0.1", "localhost")
+            return host in ("127.0.0.1", "localhost") and self.headers.get("Sec-Fetch-Site") != "cross-site"
+
+        def deny(self) -> None:
+            self.close_connection = True  # an unread request body must not be parsed as the next request
+            self.send(403, {"error": "forbidden"})
 
         def project(self, pid: int) -> dict | None:
             proj = app.store.get(pid)
@@ -126,8 +140,16 @@ def make_handler(app: App):
 
         # routing
         def do_GET(self) -> None:
+            try:
+                self.get()
+            except (ValueError, KeyError, TypeError, AttributeError) as exc:
+                self.send(400, {"error": f"잘못된 요청입니다: {exc}"})
+            except Exception as exc:  # noqa: BLE001 - the CLI expects one JSON object, never a dropped connection
+                self.send(500, {"error": f"편집기 서버 오류: {exc}"})
+
+        def get(self) -> None:
             if not self.allowed():
-                return self.send(403, {"error": "forbidden"})
+                return self.deny()
             url = urlparse(self.path)
             q = {k: v[0] for k, v in parse_qs(url.query).items()}
             parts = [p for p in url.path.split("/") if p]
@@ -140,7 +162,9 @@ def make_handler(app: App):
                 return self.send(200, schema.SCHEMA)
             if route == ["events"]:
                 return self.sse()
-            if route == ["wait"]:
+            if route == ["wait"]:  # takes a message, so like a write it needs the CLI's header
+                if self.headers.get("X-Clonamic") != "1":
+                    return self.deny()
                 pid = int(q.get("project", 0))
                 if not self.project(pid):
                     return None
@@ -182,16 +206,21 @@ def make_handler(app: App):
         def mutate(self, method: str) -> None:
             # A custom header cannot be sent cross-site without a CORS preflight, which this server never answers.
             if not self.allowed() or self.headers.get("X-Clonamic") != "1":
-                return self.send(403, {"error": "forbidden"})
+                return self.deny()
             try:
                 data = self.body()
             except ValueError:
-                return self.send(400, {"error": "JSON이 아닙니다."})
+                self.close_connection = True
+                return self.send(400, {"error": "JSON 객체가 아니거나 너무 큽니다."})
             route = [p for p in urlparse(self.path).path.split("/") if p][1:]
             try:
                 self.route(method, route, data)
             except exporter.ExportError as exc:
                 self.send(400, {"error": str(exc)})
+            except (ValueError, KeyError, TypeError, AttributeError) as exc:
+                self.send(400, {"error": f"잘못된 요청입니다: {exc}"})
+            except Exception as exc:  # noqa: BLE001
+                self.send(500, {"error": f"편집기 서버 오류: {exc}"})
 
         def route(self, method: str, route: list[str], data: dict) -> None:
             store = app.store
@@ -202,10 +231,12 @@ def make_handler(app: App):
                 return self.send(201, {"id": pid})
             if method == "POST" and route == ["projects", "import"]:
                 doc = exporter.load_design(data.get("text", ""))
+                if err := schema.shape_error(schema.migrate(doc)):
+                    return self.send(400, {"error": err})
                 pid = store.create(doc.get("name", ""), doc)
                 app.emit("projects", pid)
                 return self.send(201, {"id": pid})
-            if len(route) == 3 and route[0] == "cards" and method == "POST":
+            if len(route) == 3 and route[0] == "cards" and method == "POST" and route[2] in ("apply", "dismiss"):
                 return self.card(int(route[1]), route[2])
             if len(route) < 2 or route[0] != "projects":
                 return self.send(404, {"error": "not found"})
@@ -219,6 +250,10 @@ def make_handler(app: App):
                 app.emit("projects", pid)
                 return self.send(200, {"ok": True})
             if method == "PUT" and not rest:
+                if isinstance(data.get("doc"), dict):
+                    schema.migrate(data["doc"])
+                if err := schema.shape_error(data.get("doc")):
+                    return self.send(400, {"error": err})
                 try:
                     version = store.save(pid, data["doc"], int(data["version"]))
                 except Conflict as exc:
@@ -236,6 +271,10 @@ def make_handler(app: App):
                 app.emit("message", pid)
                 return self.send(201, {"id": mid})
             if method == "POST" and rest == ["cards"]:
+                if isinstance(data.get("doc"), dict):
+                    schema.migrate(data["doc"])
+                if err := schema.shape_error(data.get("doc")):
+                    return self.send(400, {"error": "제안의 doc: " + err})
                 card = {k: data.get(k) for k in ("title", "criterion", "reason", "targets", "changes", "effect", "rejected")}
                 card |= {"kind": data.get("kind", "review"), "doc": data["doc"], "base_version": int(data["base_version"])}
                 mid = store.add_message(pid, "ai", "card", card, "pending")

@@ -53,15 +53,12 @@ def _references(agents, links, add) -> None:
         if link.get("to") not in agent_ids | {END}:
             add("reference", link["id"], f"{link['id']}의 도착 에이전트가 없습니다.")
     for a in agents:
-        nodes = _agent_nodes(a)
+        steps = {s["id"] for s in a.get("steps", [])}
+        ends = {"from": {START} | steps, "to": steps | {EXIT + x.get("name", "") for x in a.get("exits", [])}}
         for e in a.get("edges", []):
             for side in ("from", "to"):
-                if e.get(side) not in nodes:
+                if e.get(side) not in ends[side]:
                     add("reference", full(a, e["id"]), f"{full(a, e['id'])}의 {'출발' if side == 'from' else '도착'}이 없습니다.")
-
-
-def _agent_nodes(a: dict) -> set[str]:
-    return {START} | {s["id"] for s in a.get("steps", [])} | {EXIT + x.get("name", "") for x in a.get("exits", [])}
 
 
 def _pairs(edges: list[dict]) -> list[tuple[str, str]]:
@@ -127,13 +124,18 @@ def _exits(agents, links, add) -> None:
 def _loops(agents, links, add) -> None:
     def scan(edges: list[dict], prefix) -> None:
         back = back_pairs(START, _pairs(edges))
-        known = {e["id"] for e in edges}
+        known = {e["id"]: e for e in edges}
         for e in edges:
             if (e.get("from"), e.get("to")) not in back:
                 continue
             target = prefix(e["id"])
-            if not e.get("loop_exit") or e["loop_exit"] not in known or not str(e.get("loop_limit", "")).strip():
+            out = known.get(e.get("loop_exit") or "")
+            if not out or not str(e.get("loop_limit", "")).strip():
                 add("loop", target, f"{target}는 되돌아가는 연결이라 반복 탈출 연결과 횟수가 있어야 합니다.")
+            elif out is e or out.get("from") != e.get("from"):
+                add("loop", target, f"{target}의 반복 탈출 연결은 같은 곳에서 나가는 다른 연결이어야 합니다.")
+            elif not str(e["loop_limit"]).strip().isdigit():
+                add("loop", target, f"{target}의 반복 탈출 횟수는 숫자여야 합니다.")
 
     scan(links, lambda i: i)
     for a in agents:

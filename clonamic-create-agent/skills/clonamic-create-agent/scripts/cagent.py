@@ -1,7 +1,8 @@
 """clonamic-create-agent CLI. Every command prints one JSON object (wait --stream prints one per line).
 
   open [--project NAME|ID] [--new NAME] [--no-browser]   start or reuse the editor and open the browser
-  wait --project ID --session S [--timeout 55] [--stream] next chat message from the web page
+  wait --project ID --session S [--timeout 55] [--stream] next chat message: status message|timeout|closed|replaced|error
+                                                         (--stream keeps going and never prints timeout)
   get --project ID                                       current document and version
   put --project ID --version V [--note T --why T --affected T] < doc.json
   say --project ID < text                                AI chat reply (plain text, no markdown)
@@ -46,7 +47,11 @@ def call(port: int, method: str, path: str, data=None, timeout: float = 10):
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, json.loads(resp.read() or b"{}")
     except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read() or b"{}")
+        raw = exc.read() or b"{}"
+        try:
+            return exc.code, json.loads(raw)
+        except ValueError:
+            return exc.code, {"error": raw.decode(errors="replace")[:500]}
 
 
 def ours(port: int) -> bool:
@@ -84,7 +89,6 @@ def start_server() -> int:
             return port
         time.sleep(0.1)
     out({"ok": False, "error": "편집기 서버가 시작되지 않았습니다.", "log": str(data_dir() / "server.log")}, 2)
-    return port
 
 
 def need_server() -> int:
@@ -106,9 +110,11 @@ def cmd_open(args) -> None:
     first = not data_dir().exists()
     port = find_server() or start_server()
     pid = None
-    if args.new:
-        _, made = call(port, "POST", "/api/projects", {"name": args.new})
-        pid = made["id"]
+    if args.new:  # running the same command again reopens that project instead of making a copy
+        pid = resolve_project(port, args.new)
+        if pid is None:
+            _, made = call(port, "POST", "/api/projects", {"name": args.new})
+            pid = made["id"]
     elif args.project:
         pid = resolve_project(port, args.project)
         if pid is None:
@@ -116,20 +122,37 @@ def cmd_open(args) -> None:
     url = f"http://127.0.0.1:{port}/" + (f"#{pid}" if pid else "")
     if not args.no_browser:
         webbrowser.open(url)
+    _, projects = call(port, "GET", "/api/projects")
     out({"ok": True, "url": url, "port": port, "project": pid, "session": secrets.token_hex(6),
-         "data_dir": str(data_dir()), "first_run": first})
+         "data_dir": str(data_dir()), "first_run": first,
+         "projects": [{"id": p["id"], "name": p["name"]} for p in projects][:20] if pid is None else None})
 
 
 def cmd_wait(args) -> None:
-    port = need_server()
+    """Statuses: message, timeout, closed, replaced, error. --stream keeps going and stays silent on timeout,
+    so a host that treats each line as an event (Claude Code Monitor) only wakes for something real."""
+    port = find_server()
+    if port is None:  # the tabs closed between two waits
+        return out({"status": "closed"})
+    failures = 0
     while True:
         try:
-            _, data = call(port, "GET", f"/api/wait?project={args.project}&token={args.session}&timeout={args.timeout}",
-                           timeout=args.timeout + 15)
-        except (OSError, ValueError):
-            data = {"status": "closed"}
+            status, data = call(port, "GET", f"/api/wait?project={args.project}&token={args.session}&timeout={args.timeout}",
+                                timeout=args.timeout + 15)
+        except (OSError, ValueError) as exc:
+            if find_server() is None:
+                status, data = 200, {"status": "closed"}
+            elif (failures := failures + 1) < 3:
+                continue
+            else:
+                status, data = 500, {"error": str(exc)}
+        if status != 200:
+            return out({"status": "error", "error": data.get("error", f"HTTP {status}")}, 2)
+        failures = 0
         if data.get("status") == "message":
             data["message"] = trim(data["message"])
+        if args.stream and data.get("status") == "timeout":
+            continue
         out(data)
         if not args.stream or data.get("status") in ("closed", "replaced"):
             return
@@ -179,7 +202,9 @@ def cmd_propose(args) -> None:
 
 def cmd_check(args) -> None:
     port = need_server()
-    _, data = call(port, "GET", f"/api/projects/{args.project}/check")
+    status, data = call(port, "GET", f"/api/projects/{args.project}/check")
+    if status != 200:
+        out({"ok": False, **data}, 2)
     out({"ok": not data["issues"], **data})
 
 
@@ -212,8 +237,11 @@ def main() -> None:
     args = parser.parse_args()
     if sys.version_info < (3, 12):
         out({"ok": False, "error": "Python 3.12 이상이 필요합니다. `uv python install 3.12` 또는 OS 패키지 관리자로 설치하세요."}, 2)
-    {"open": cmd_open, "wait": cmd_wait, "get": cmd_get, "put": cmd_put, "say": cmd_say, "propose": cmd_propose,
-     "check": cmd_check, "korean": cmd_korean}[args.cmd](args)
+    try:
+        {"open": cmd_open, "wait": cmd_wait, "get": cmd_get, "put": cmd_put, "say": cmd_say, "propose": cmd_propose,
+         "check": cmd_check, "korean": cmd_korean}[args.cmd](args)
+    except (OSError, ValueError, KeyError, TypeError) as exc:  # one JSON object even on failure (bad stdin JSON, server gone)
+        out({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 2)
 
 
 if __name__ == "__main__":

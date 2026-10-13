@@ -60,10 +60,6 @@ class Store:
         return {"id": r["id"], "doc": schema.migrate(json.loads(r["doc"])), "version": r["version"], "export_path": r["export_path"],
                 "polished": r["polished_version"] == r["version"]}
 
-    def find(self, name: str) -> int | None:
-        hits = [p["id"] for p in self.projects() if p["name"] == name]
-        return hits[0] if hits else None
-
     def save(self, pid: int, doc: dict, version: int, polished: bool = False) -> int:
         with self.lock, self.db:
             r = self.db.execute("SELECT version FROM projects WHERE id = ?", (pid,)).fetchone()

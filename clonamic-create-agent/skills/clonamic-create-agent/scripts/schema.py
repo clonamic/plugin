@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 FORMAT = 1
 STEP_TYPES = ["판단", "처리", "외부 연동", "사람 확인"]
 EDGE_KINDS = {"always": "항상", "cond": "조건"}
@@ -101,6 +103,67 @@ def filled(value) -> bool:
     if isinstance(value, dict):
         return any(filled(v) for v in value.values())
     return bool(str(value or "").strip())
+
+
+TEXT_KINDS = {"line", "text", "select", "ref", "exit", "color"}
+ID = re.compile(r"^[A-Z]\d+$")
+
+
+def shape_error(doc) -> str:
+    """Why a document may not be stored ('' when it may). Everything that reads it later (checks, render, the editor)
+    relies on these types and on unique ids, so a bad `put`, card, or imported file is refused at the door."""
+    if not isinstance(doc, dict):
+        return "문서가 JSON 객체가 아닙니다."
+
+    def fields(kind: str, obj, where: str) -> str:
+        if not isinstance(obj, dict):
+            return f"{where}가 객체가 아닙니다."
+        for key, _, k, _, _ in SCHEMA[kind]:
+            if key not in obj:
+                continue
+            v = obj[key]
+            if k in TEXT_KINDS and not isinstance(v, str):
+                return f"{where}의 {key}는 문자열이어야 합니다."
+            if k in ("lines", "names", "toolrefs") and not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
+                return f"{where}의 {key}는 문자열 목록이어야 합니다."
+            if k in ("table", "tools", "process") and not (isinstance(v, list) and all(isinstance(x, dict) for x in v)):
+                return f"{where}의 {key}는 객체 목록이어야 합니다."
+        return ""
+
+    def ids(items, where: str) -> str:
+        seen = set()
+        for x in items:
+            i = x.get("id") if isinstance(x, dict) else None
+            if not isinstance(i, str) or not ID.match(i):
+                return f"{where}에 번호(예: A1)가 없거나 형식이 틀린 항목이 있습니다."
+            if i in seen:
+                return f"{where}에 같은 번호 {i}가 둘 있습니다."
+            seen.add(i)
+        return ""
+
+    for key in ("agents", "links"):
+        if not isinstance(doc.get(key, []), list):
+            return f"{key}는 목록이어야 합니다."
+    err = fields("project", doc, "프로젝트") or ids(doc.get("agents", []), "에이전트") or ids(doc.get("links", []), "에이전트 연결")
+    err = err or ids(doc.get("tools", []), "도구 목록")
+    if err:
+        return err
+    for link in doc.get("links", []):
+        err = err or fields("link", link, link["id"])
+    for a in doc.get("agents", []):
+        err = err or fields("agent", a, a["id"])
+        for key in ("steps", "edges", "exits"):
+            if not (isinstance(a.get(key, []), list) and all(isinstance(x, dict) for x in a.get(key, []))):
+                return f"{a['id']}의 {key}는 객체 목록이어야 합니다."
+        err = err or ids(a.get("steps", []), f"{a['id']}의 단계") or ids(a.get("edges", []), f"{a['id']}의 연결")
+        names = [x.get("name") for x in a.get("exits", [])]
+        if not err and (not all(isinstance(n, str) and n.strip() for n in names) or len(set(names)) != len(names)):
+            err = f"{a['id']}의 출력 이름이 비었거나 겹칩니다."
+        for s in a.get("steps", []):
+            err = err or fields("step", s, f"{a['id']}-{s['id']}")
+        for e in a.get("edges", []):
+            err = err or fields("edge", e, f"{a['id']}-{e['id']}")
+    return err
 
 
 def new_project(name: str) -> dict:
