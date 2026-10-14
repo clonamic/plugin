@@ -19,11 +19,12 @@ from urllib.parse import parse_qs, urlparse
 
 import checks
 import exporter
+import patch
 import render
 import schema
 from store import Conflict, Store, data_dir
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 APP = "clonamic-create-agent"
 WEB = Path(__file__).resolve().parent.parent / "assets" / "web"
 MAX_BODY = 5_000_000
@@ -237,7 +238,7 @@ def make_handler(app: App):
                 app.emit("projects", pid)
                 return self.send(201, {"id": pid})
             if len(route) == 3 and route[0] == "cards" and method == "POST" and route[2] in ("apply", "dismiss"):
-                return self.card(int(route[1]), route[2])
+                return self.card(int(route[1]), route[2], data.get("keys"))
             if len(route) < 2 or route[0] != "projects":
                 return self.send(404, {"error": "not found"})
             pid = int(route[1])
@@ -275,8 +276,11 @@ def make_handler(app: App):
                     schema.migrate(data["doc"])
                 if err := schema.shape_error(data.get("doc")):
                     return self.send(400, {"error": "제안의 doc: " + err})
+                base = store.at_version(pid, int(data["base_version"]))
+                if base is None:
+                    return self.send(409, {"error": "제안의 base_version이 너무 오래됐습니다. get으로 다시 받아 제안하세요.", "version": proj["version"]})
                 card = {k: data.get(k) for k in ("title", "criterion", "reason", "targets", "changes", "effect", "rejected")}
-                card |= {"kind": data.get("kind", "review"), "doc": data["doc"], "base_version": int(data["base_version"])}
+                card |= {"kind": data.get("kind", "review"), "base_version": int(data["base_version"]), "patch": patch.diff(base, data["doc"])}
                 mid = store.add_message(pid, "ai", "card", card, "pending")
                 app.emit("message", pid)
                 return self.send(201, {"id": mid})
@@ -299,7 +303,8 @@ def make_handler(app: App):
                 return self.send(200, result | {"polished": proj["polished"]})
             return self.send(404, {"error": "not found"})
 
-        def card(self, mid: int, action: str) -> None:
+        def card(self, mid: int, action: str, keys: list | None = None) -> None:
+            """Apply the chosen units of a card's patch (all when `keys` is None) onto the current document."""
             store = app.store
             msg = store.message(mid)
             if not msg or msg["kind"] != "card" or msg["status"] != "pending":
@@ -310,18 +315,38 @@ def make_handler(app: App):
                 app.emit("message", pid)
                 return self.send(200, {"ok": True})
             proj = store.get(pid)
-            if not proj or proj["version"] != card["base_version"]:
-                return self.send(409, {"error": "설계가 바뀌어 이 제안을 적용할 수 없습니다. 다시 제안을 요청하세요."})
-            doc = card["doc"]
+            if not proj:
+                return self.send(404, {"error": "프로젝트가 없습니다."})
+            if keys is not None and not (isinstance(keys, list) and all(isinstance(k, str) for k in keys)):
+                return self.send(400, {"error": "keys는 문자열 목록이어야 합니다."})
+            items = card.get("patch")
+            if items is None:  # a card stored before patches existed carries the whole document
+                base = store.at_version(pid, card["base_version"])
+                if base is None:
+                    return self.send(409, {"error": "설계가 바뀌어 이 제안을 적용할 수 없습니다. 다시 제안을 요청하세요."})
+                items = patch.diff(base, card["doc"])
+            chosen = items if keys is None else [it for it in items if it["key"] in set(keys)]
+            if items and not chosen:
+                return self.send(400, {"error": "적용할 항목을 하나 이상 고르세요."})
+            try:
+                doc, conflicts = patch.apply(proj["doc"], chosen)
+            except KeyError as exc:
+                return self.send(409, {"error": exc.args[0]})
+            if conflicts:
+                return self.send(409, {"error": "제안 뒤에 바뀐 곳이 있어 적용할 수 없습니다: " + ", ".join(conflicts)
+                                       + ". 그 항목을 빼고 적용하거나 다시 제안을 요청하세요.", "conflicts": conflicts})
+            if err := schema.shape_error(doc):
+                return self.send(409, {"error": "고른 항목만으로는 문서가 맞지 않습니다: " + err})
             polish = card.get("kind") == "polish"
             if not polish:
                 doc.setdefault("decisions", []).append(
                     {"decision": card.get("title") or "", "why": card.get("reason") or "", "rejected": card.get("rejected") or ""})
             try:
-                version = store.save(pid, doc, proj["version"], polished=polish)
+                version = store.save(pid, doc, proj["version"], polished=polish and len(chosen) == len(items))
             except Conflict:
                 return self.send(409, {"error": "설계가 바뀌어 이 제안을 적용할 수 없습니다. 다시 제안을 요청하세요."})
-            store.log(pid, today(), card.get("title") or "", card.get("reason") or "", ", ".join(card.get("targets") or []))
+            store.log(pid, today(), card.get("title") or "", card.get("reason") or "",
+                      ", ".join(dict.fromkeys(it["target"] for it in chosen)) or ", ".join(card.get("targets") or []))
             store.set_status(mid, "applied")
             app.emit("project", pid)
             app.emit("message", pid)

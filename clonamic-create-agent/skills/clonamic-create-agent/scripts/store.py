@@ -11,6 +11,9 @@ from pathlib import Path
 import schema
 
 
+HISTORY = 100  # saved versions kept per project (the editor autosaves, so this is the last stretch of editing)
+
+
 def data_dir() -> Path:
     return Path.home() / ".clonamic" / "create-agent"
 
@@ -35,6 +38,9 @@ class Store:
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, role TEXT NOT NULL, kind TEXT NOT NULL,
                     body TEXT NOT NULL, status TEXT NOT NULL DEFAULT '', created REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS history (
+                    project_id INTEGER NOT NULL, version INTEGER NOT NULL, doc TEXT NOT NULL,
+                    PRIMARY KEY (project_id, version));
                 CREATE TABLE IF NOT EXISTS changelog (
                     id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, date TEXT NOT NULL,
                     what TEXT NOT NULL, why TEXT NOT NULL, affected TEXT NOT NULL);
@@ -75,10 +81,22 @@ class Store:
             if r["version"] != version:
                 raise Conflict(r["version"])
             new = version + 1
+            text = json.dumps(doc, ensure_ascii=False)
             self.db.execute("UPDATE projects SET doc = ?, version = ?, updated = ?"
                             + (", polished_version = ?" if polished else "") + " WHERE id = ?",
-                            (json.dumps(doc, ensure_ascii=False), new, time.time(), *([new] if polished else []), pid))
+                            (text, new, time.time(), *([new] if polished else []), pid))
+            # Recent versions let a proposal made from a slightly older read still be turned into a patch.
+            self.db.execute("INSERT OR REPLACE INTO history (project_id, version, doc) VALUES (?, ?, ?)", (pid, new, text))
+            self.db.execute("DELETE FROM history WHERE project_id = ? AND version <= ?", (pid, new - HISTORY))
         return new
+
+    def at_version(self, pid: int, version: int) -> dict | None:
+        """The document as it was at `version` (current or one of the last HISTORY saves), or None."""
+        proj = self.get(pid)
+        if proj and proj["version"] == version:
+            return proj["doc"]
+        rows = self.read("SELECT doc FROM history WHERE project_id = ? AND version = ?", (pid, version))
+        return schema.migrate(json.loads(rows[0]["doc"])) if rows else None
 
     def set_export_path(self, pid: int, path: str) -> None:
         with self.lock, self.db:
@@ -86,7 +104,7 @@ class Store:
 
     def delete(self, pid: int) -> None:
         with self.lock, self.db:
-            for table in ("messages", "changelog"):
+            for table in ("messages", "changelog", "history"):
                 self.db.execute(f"DELETE FROM {table} WHERE project_id = ?", (pid,))
             self.db.execute("DELETE FROM projects WHERE id = ?", (pid,))
 

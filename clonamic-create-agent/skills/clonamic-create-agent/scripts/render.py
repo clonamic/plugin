@@ -296,11 +296,15 @@ def _step(doc, p, a, s) -> str:
     section(out, "필요한 이유", [s.get("intent", "")])
     section(out, "input / output", _io_table(doc, src, [("input", s.get("inputs", [])), ("output", s.get("outputs", []))]))
     steps = [x for x in s.get("process", []) if str(x.get("name", "")).strip()]
-    flow = " → ".join(f"{i}. {x['name'].strip()}" for i, x in enumerate(steps, 1))
-    section(out, "과정", [flow, "", *table(["순서", "단위", "이름", "하는 일", "input", "output", "도구"],
-                                          [[i, x.get("unit"), x.get("name"), x.get("does"), x.get("input"), x.get("output"),
-                                            _tool_label(doc, x["tool"]) if x.get("tool") else ""]
-                                           for i, x in enumerate(steps, 1)])])
+    # One item per row: a head line (unit, name, input → output, tool), then the procedure lines of `does` under it.
+    rows = ["흐름: " + " → ".join(f"{i}. {x['name'].strip()}" for i, x in enumerate(steps, 1)), ""]
+    for i, x in enumerate(steps, 1):
+        unit = f"`{x['unit']}` " if x.get("unit") else ""
+        io = f" — {x.get('input', '')} → {x.get('output', '')}" if x.get("input") or x.get("output") else ""
+        tool = f" · 도구 {_tool_label(doc, x['tool'])}" if x.get("tool") else ""
+        rows.append(f"{i}. {unit}**{x['name'].strip()}**{io}{tool}")
+        rows += [f"   - {line.strip().removeprefix('- ')}" for line in str(x.get("does", "")).splitlines() if line.strip()]
+    section(out, "과정", rows)
     if [x for x in s.get("criteria", []) if x.strip()]:
         section(out, "판단 기준", [f"- {x}" for x in s["criteria"] if x.strip()])
     if s.get("prompt", "").strip():
@@ -326,7 +330,7 @@ def _condition(out, item, siblings, link_to, loop_target) -> None:
     if item.get("kind") == "cond":
         rows += [["조건", item.get("condition", "").strip()], ["판단 방식", item.get("judge", "")]]
     if item.get("loop_exit") and loop_target:
-        rows += [["최대 반복 횟수", str(item.get("loop_limit", "")).strip()], ["한도를 넘으면", loop_target]]
+        rows += [["최대 반복 횟수", str(item.get("loop_limit", "")).strip()], ["한도 초과 시", loop_target]]
     others = [x for x in siblings if x["id"] != item["id"]]
     if item.get("kind") == "cond" and others:
         rows.append(["같은 출발의 다른 연결", ", ".join(f"{link_to(x)} ({_cond_text(x)})" for x in others)])

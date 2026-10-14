@@ -29,6 +29,7 @@
       <div id="actions" class="row"></div>
     </div>
     <nav id="crumb" aria-label="위치"></nav>
+    <ol id="steps" aria-label="진행 단계" hidden></ol>
   </header>
   <div id="stage">
     <div id="cy" tabindex="0" aria-label="설계 캔버스. +와 -로 확대·축소, 0으로 화면 맞춤"></div>
@@ -49,6 +50,7 @@
   <div class="segmented" role="tablist" aria-label="오른쪽 패널">
     <button id="tab-doc" role="tab" aria-selected="true" type="button">문서</button>
     <button id="tab-chat" role="tab" aria-selected="false" type="button">검토 <span id="unread" class="dot" hidden aria-label="새 메시지"></span></button>
+    <button id="tab-both" role="tab" aria-selected="false" type="button" title="문서와 검토를 위아래로 함께 봅니다">함께 보기</button>
   </div>
   <section id="panel-doc" role="tabpanel" aria-labelledby="tab-doc"></section>
   <section id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden>

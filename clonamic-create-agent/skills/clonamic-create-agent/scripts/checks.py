@@ -124,9 +124,9 @@ def _loops(agents, links, add) -> None:
             target = prefix(e["id"])
             out = known.get(e.get("loop_exit") or "")
             if not out or not str(e.get("loop_limit", "")).strip():
-                add("loop", target, f"{target}는 되돌아가는 연결이라 최대 반복 횟수와 한도를 넘으면 갈 연결이 있어야 합니다.")
+                add("loop", target, f"{target}는 되돌아가는 연결이라 최대 반복 횟수와 한도 초과 시 연결이 있어야 합니다.")
             elif out is e or out.get("from") != e.get("from"):
-                add("loop", target, f"{target}의 한도를 넘으면 갈 연결은 같은 곳에서 나가는 다른 연결이어야 합니다.")
+                add("loop", target, f"{target}의 한도 초과 시 연결은 같은 곳에서 나가는 다른 연결이어야 합니다.")
             elif not str(e["loop_limit"]).strip().isdigit():
                 add("loop", target, f"{target}의 최대 반복 횟수는 숫자여야 합니다.")
 

@@ -71,7 +71,7 @@ EDGE = [
     ("condition", "조건", "text", False, None),
     ("judge", "판단 방식", "select", False, JUDGES),
     ("loop_limit", "최대 반복 횟수", "line", False, None),
-    ("loop_exit", "한도를 넘으면 갈 연결", "ref", False, None),
+    ("loop_exit", "한도 초과 시 연결", "ref", False, None),
     ("intent", "필요한 이유", "text", False, None),
     ("passes", "전달 데이터", "names", True, None),
 ]

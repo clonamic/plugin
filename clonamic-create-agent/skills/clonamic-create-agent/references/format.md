@@ -26,10 +26,10 @@
     "steps": [{
       "id": "N1", "name": "짧은 기능명", "type": "판단|처리|외부 연동|사람 확인", "summary": "요약",
       "intent": "필요한 이유", "inputs": ["데이터 이름"], "outputs": ["데이터 이름"],
-      "process": [{"unit": "파일|모듈|클래스|함수|외부 호출|사람 작업|기타", "name": "minutes_loader.py", "does": "회의록을 읽는다",
+      "process": [{"unit": "파일|모듈|클래스|함수|외부 호출|사람 작업|기타", "name": "minutes_loader.py", "does": "1. 파일을 UTF-8로 읽는다\n2. 비어 있으면 '빈 회의록'으로 멈춘다",
                    "input": "회의록", "output": "회의록 본문", "tool": "T1 또는 빈 값"}],
-      "criteria": ["판단 기준 (판단 단계)"], "prompt": "AI 지시 요점 (판단 단계)",
-      "tools": ["T1"], "done": ["완료 기준"], "example": "input: … → output: …", "on_fail": "실패 처리",
+      "criteria": ["판단 기준 (판단 단계)"], "prompt": "AI 지시 (판단 단계)",
+      "tools": ["T1"], "done": ["완료 기준"], "example": "정상 input: … → output: …\n예외 input: … → 처리: …", "on_fail": "실패 처리",
       "fixed": "", "discretion": "", "cautions": ""
     }],
     "edges": [{
@@ -54,7 +54,7 @@ Rules the checks enforce (see `cagent.py check`):
 - Flow: every agent is reachable from `start` and some link reaches `end`; every agent has steps; inside an agent every step is reachable from `start`, has an outgoing edge (no dead end), and some edge reaches `end`. Edges leave `start` or a step and arrive at a step or `end`.
 - Several edges or links out of the same node must all be `cond`; a single `cond` one alone is an error (no path when the condition fails). Conditional ones need `name`, `condition`, `judge`, `intent`.
 - An edge or link that returns to an earlier node needs `loop_limit` (a whole number) and `loop_exit` (another edge leaving the same node).
-- Required fields: the `*` marks in the editor. Steps also need, by type: 판단 → `criteria`, `prompt`, `on_fail`; 외부 연동 and 사람 확인 → `on_fail`. Every step needs `example`, at least one named `process` item, and every named process item needs `does`. Project needs `scenarios` and `tools` (at least one; an LLM-only step uses a `모델` tool). Every edge and link needs `passes`.
+- Required fields: the `*` marks in the editor. Steps also need, by type: 판단 → `criteria`, `prompt`, `on_fail`; 외부 연동 and 사람 확인 → `on_fail`. Every step needs `example`, at least one named `process` item, and every named process item needs `does` (one procedure line per line; the export lists each line under the item). Project needs `scenarios` and `tools` (at least one; an LLM-only step uses a `모델` tool). Every edge and link needs `passes`.
 - `tools`: every referenced id exists, every catalog tool has a name and is used by a step or process item, an internal-agent tool points at an existing agent.
 - Data: every step `inputs` name is produced somewhere (a project input or a step output); every output is consumed (a step input, an edge/link `passes`, or a project output).
 - Data dictionary: every data name used anywhere is in `glossary` with at least one field that has a name and a type. Names that differ only by spacing or case are flagged as the same name.

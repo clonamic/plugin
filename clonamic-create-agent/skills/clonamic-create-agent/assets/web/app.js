@@ -278,10 +278,29 @@ async function refreshIssues() {
   if (ok) { S.issues = data.issues; renderIssueButton(); }
 }
 function renderIssueButton() {
+  renderSteps();
   const b = $("btn-issues");
   if (!b) return;
   b.textContent = S.issues.length ? `검사 ${S.issues.length}` : "검사 통과";
   b.classList.toggle("warn", S.issues.length > 0);
+}
+// Where the design stands: requirements → agents → detailed design → review and polish → export.
+function renderSteps() {
+  const box = $("steps");
+  box.hidden = !S.doc;
+  if (!S.doc) return;
+  const d = S.doc;
+  const done = [
+    ["summary", "want", "success", "inputs", "outputs"].every((k) => hasValue(d[k])),
+    d.agents.length > 0 && d.links.some((l) => l.from === "start") && d.links.some((l) => l.to === "end"),
+    d.agents.length > 0 && d.agents.every((a) => a.steps.length) && !S.issues.length,
+    S.polished,
+    !!S.exportPath,
+  ];
+  const cur = done.indexOf(false);
+  box.replaceChildren(...["요구사항", "에이전트 구성", "상세 설계", "검토·다듬기", "내보내기"].map((label, i) =>
+    el("li", { class: done[i] ? "done" : i === cur ? "current" : "", "aria-current": i === cur ? "step" : null },
+      el("span", { class: "n", "aria-hidden": "true" }, done[i] ? "✓" : String(i + 1)), label)));
 }
 function openIssues() {
   modal("검사 결과", S.issues.length
@@ -320,7 +339,7 @@ function listen() {
 // Cytoscape draws the links and does hit-testing, layout, and pan/zoom on transparent node boxes.
 // The visible cards are HTML laid over those boxes. A card reads top to bottom: input → 과정 → output → 다음;
 // every 다음 row has a port the link leaves from, so no text ever sits on a line.
-const CARD_W = 236, PILL_W = 132, LINE_H = 18;
+const CARD_W = 236, PILL_W = 132, LINE_H = 18, PROC_MAX = 6;  // a card lists at most PROC_MAX process lines
 const FONT_STACK = getComputedStyle(document.documentElement).getPropertyValue("--font").trim() || "system-ui, sans-serif";
 const TITLE_FONT = `600 13px ${FONT_STACK}`, ROW_FONT = `12px ${FONT_STACK}`;
 const TYPE_ICON = { "판단": "◇", "처리": "□", "외부 연동": "⇄", "사람 확인": "◉" };
@@ -408,7 +427,7 @@ function measure(sp) {
   parts.push({ type: "head", h: headH });
   if (!pill && detail && sp.sub) parts.push({ type: "sub", h: 20 });
   if (!pill && detail && sp.input?.length) parts.push({ type: "input", h: 26 });
-  if (!pill && detail && sp.process?.length) parts.push({ type: "process", h: 26 });
+  if (!pill && detail && sp.process?.length) parts.push({ type: "process", h: 8 + Math.min(sp.process.length, PROC_MAX) * LINE_H });
   if (!pill && detail && sp.output?.length) parts.push({ type: "output", h: 26 });
   if (sp.rows.length) {
     if (!pill) parts.push({ type: "outlabel", h: 20 });
@@ -448,8 +467,12 @@ function nodeCardEl(sp) {
         sp.chips?.length ? el("div", { class: "chips" }, ...sp.chips.map((c) => el("span", { class: `chip${c.startsWith("⚠") ? " warn" : ""}` }, c))) : null);
     } else if (part.type === "sub") add(box, el("div", { class: "line muted" }, sp.sub));
     else if (part.type === "input" || part.type === "output") add(box, el("span", { class: "tag" }, part.type), el("span", { class: "line" }, sp[part.type].join(" · ")));
-    else if (part.type === "process") add(box, el("span", { class: "tag" }, `과정 ${sp.process.length}`),
-      el("span", { class: "line" }, ...sp.process.flatMap((p, i) => [i ? el("span", { class: "arrow" }, " → ") : null, p.name])));
+    else if (part.type === "process") {
+      const n = sp.process.length, shown = n > PROC_MAX ? PROC_MAX - 1 : n;
+      add(box, el("span", { class: "tag" }, "과정"), el("div", { class: "plist" },
+        ...sp.process.slice(0, shown).map((p, i) => el("span", { class: "line" }, `${i + 1}. ${p.name}`)),
+        n > shown ? el("span", { class: "line muted" }, `… 외 ${n - shown}개`) : null));
+    }
     else if (part.type === "outlabel") add(box, el("span", { class: "tag" }, "다음"));
     else if (part.type === "row") {
       const r = sp.rows[part.i];
@@ -826,7 +849,7 @@ function dropLink(src, rowIndex, dst, opts = {}) {
   const e = { id: nextId(list, "L"), from: src, to: dst, kind: siblings.length ? "cond" : "always", name: "", passes: [] };
   if (siblings.length && siblings.some((x) => x.kind !== "cond")) {
     siblings.forEach((x) => { x.kind = "cond"; });
-    toast("갈래가 둘이 되어 모두 조건 연결로 바꿨습니다. 조건을 채우세요.", false);
+    toast("분기가 둘이 되어 모두 조건 연결로 바꿨습니다. 조건을 채우세요.", false);
   }
   list.push(e);
   after(a ? "edge" : "link", e.id, e.kind === "cond" ? "name" : null);
@@ -878,6 +901,7 @@ function ibtn(path, label, fn, extra = {}) {
 function renderTop() {
   const has = !!S.doc;
   $("empty").hidden = has;
+  renderSteps();
   $("project-name").disabled = !has;
   $("project-name").value = has ? S.doc.name || "" : "";
   for (const id of ["crumb", "tools", "actions", "zoom", "history"]) $(id).replaceChildren();
@@ -1323,12 +1347,12 @@ const HINT = {
   "agent.role": "이 에이전트가 맡는 역할 하나", "agent.intent": "다른 에이전트와 합치지 않고 나눈 이유",
   "step.summary": "이 단계가 하는 일 한 줄", "step.intent": "이 단계가 없으면 무엇이 깨지는지",
   "step.criteria": "AI가 지킬 기준, 한 줄에 하나 (예: 하루 이동 시간 3시간 이하)",
-  "step.prompt": "AI에게 줄 역할, 받는 input, 지킬 것, 내야 할 output 형식",
+  "step.prompt": "AI에게 줄 역할, 받는 input, 지킬 것, output 형식과 예, 좋은 답·나쁜 답 예",
   "step.done": "다음으로 넘어가도 되는 조건, 판별할 수 있게",
-  "step.example": "input: 실제 값 → output: 실제 값 (한 건)",
+  "step.example": "정상: input 실제 값 → output 실제 값 / 예외: input 실제 값 → 처리 결과",
   "step.on_fail": "실패 종류마다 다시 시도, 대체 값, 멈춤 중 무엇을 하는지",
   "edge.condition": "데이터로 판별할 수 있는 규칙 (예: 후보 수가 2개 이상)", "edge.name": "조건을 짧게 (예: 후보 부족)",
-  "edge.intent": "이 갈래가 왜 필요한지", "edge.loop_limit": "숫자 (예: 2)",
+  "edge.intent": "이 분기가 왜 필요한지", "edge.loop_limit": "숫자 (예: 2)",
 };
 
 function renderDoc() {
@@ -1350,7 +1374,9 @@ function renderDoc() {
     el("div", { class: "row" },
       el("button", { type: "button", "aria-pressed": S.preview ? "true" : "false", on: { click: togglePreview } }, "미리보기"),
       ["project", "glossary"].includes(kind) ? null : el("button", { type: "button", class: "danger", on: { click: askRemove } }, "삭제"),
-      kind === "agent" ? el("button", { type: "button", on: { click: () => enter(obj.id) } }, "안으로") : null));
+      kind === "agent" ? el("button", { type: "button", on: { click: () => enter(obj.id) } }, "안으로") : null,
+      kind === "step" ? el("button", { type: "button", title: "앞뒤 단계를 보고 과정, 판단 기준, AI 지시, 예시, 실패 처리를 AI가 자세히 채웁니다",
+        on: { click: () => { const a = curAgent(); sendMessage(`${a ? `${a.id}-` : ""}${obj.id} 단계를 자세히 채워줘`); } } }, "AI로 자세히 채우기") : null));
   if (S.preview) {
     const pre = el("pre", { class: "preview" }, "불러오는 중…");
     panel.replaceChildren(head, pre);
@@ -1468,8 +1494,8 @@ function processEl(kind, obj) {
         ...S.schema.process_units.map((u) => el("option", { value: u, selected: r.unit === u }, u)));
       const name = el("input", { class: "p-name", value: r.name || "", placeholder: "이름 (예: minutes_loader.py, extract_decisions)", "aria-label": `${i + 1}번 이름`,
         on: { input: (e) => { touch(`process:${obj.id}:${i}:name`); r.name = e.target.value; changed(kind, obj, "process"); } } });
-      const does = el("input", { class: "p-does", value: r.does || "", placeholder: "하는 일 (쉬운 말, 고르는 기준이 있으면 함께)", "aria-label": `${i + 1}번 하는 일`,
-        on: { input: (e) => { touch(`process:${obj.id}:${i}:does`); r.does = e.target.value; changed(kind, obj, "process"); } } });
+      const does = el("textarea", { class: "p-does", rows: 2, placeholder: "처리 절차를 한 줄에 하나씩 (기준·수치·빈 결과와 예외 처리)", "aria-label": `${i + 1}번 하는 일`,
+        on: { input: (e) => { autosize(e.target); touch(`process:${obj.id}:${i}:does`); r.does = e.target.value; changed(kind, obj, "process"); } } }, r.does || "");
       const io = (k, ph) => el("input", { value: r[k] || "", placeholder: ph, list: "names", "aria-label": `${i + 1}번 ${k}`,
         on: { input: (e) => { touch(`process:${obj.id}:${i}:${k}`); r[k] = e.target.value; changed(kind, obj, "process"); } } });
       const ioRow = el("div", { class: "p-io" }, io("input", "input"), el("span", { "aria-hidden": "true" }, "→"), io("output", "output"));
@@ -1480,11 +1506,22 @@ function processEl(kind, obj) {
         el("button", { type: "button", class: "icon-s", "aria-label": `${i + 1}번 위로`, disabled: i === 0, on: { click: () => move(-1) } }, "↑"),
         el("button", { type: "button", class: "icon-s", "aria-label": `${i + 1}번 아래로`, disabled: i === rows.length - 1, on: { click: () => move(1) } }, "↓"),
         el("button", { type: "button", class: "icon-s", "aria-label": `${i + 1}번 삭제`, on: { click: () => { touch(); rows.splice(i, 1); changed(kind, obj, "process"); draw(); } } }, "×"));
-      return [i ? el("div", { class: "process-arrow", "aria-hidden": "true" }, "↓") : null,
-        el("div", { class: "process-item" }, el("span", { class: "num" }, String(i + 1)), unit, name, ctrls, does, ioRow, tool)];
+      // Drag the number to reorder (the ↑↓ buttons stay for the keyboard).
+      const num = el("span", { class: "num", draggable: "true", title: "끌어서 순서 바꾸기", on: { dragstart: (e) => {
+        e.dataTransfer.setData("text/x-process", String(i)); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setDragImage(item, 16, 16); } } }, String(i + 1));
+      const item = el("div", { class: "process-item", on: {
+        dragover: (e) => { if (e.dataTransfer.types.includes("text/x-process")) { e.preventDefault(); item.classList.add("drop"); } },
+        dragleave: () => item.classList.remove("drop"),
+        drop: (e) => {
+          e.preventDefault(); item.classList.remove("drop");
+          const from = Number(e.dataTransfer.getData("text/x-process"));
+          if (Number.isNaN(from) || from === i) return;
+          touch(); rows.splice(i, 0, rows.splice(from, 1)[0]); changed(kind, obj, "process"); draw();
+        } } }, num, unit, name, ctrls, does, ioRow, tool);
+      return [i ? el("div", { class: "process-arrow", "aria-hidden": "true" }, "↓") : null, item];
     });
     wrap.replaceChildren(...items.flat().filter(Boolean),
-      el("button", { type: "button", class: "add", on: { click: () => { touch(); rows.push({ unit: "함수", name: "", does: "", input: "", output: "", tool: "" }); changed(kind, obj, "process"); draw(); wrap.querySelector(".process-item:last-of-type input")?.focus(); } } }, "+ 과정 추가"));
+      el("button", { type: "button", class: "add", on: { click: () => { touch(); rows.push({ unit: "함수", name: "", does: "", input: rows.length ? rows[rows.length - 1].output || "" : (obj.inputs || []).join(", "), output: "", tool: "" }); changed(kind, obj, "process"); draw(); wrap.querySelector(".process-item:last-of-type input")?.focus(); } } }, "+ 과정 추가"));
   };
   draw();
   return wrap;
@@ -1650,17 +1687,28 @@ function tableEl(kind, obj, key, cols) {
 }
 
 // ---------- tabs ----------
+// "함께 보기" shows the document and the review chat stacked, so the user can edit while talking to the AI.
 function setTab(tab) {
   S.tab = tab;
-  $("tab-doc").setAttribute("aria-selected", tab === "doc");
-  $("tab-chat").setAttribute("aria-selected", tab === "chat");
-  $("panel-doc").hidden = tab !== "doc";
-  $("panel-chat").hidden = tab !== "chat";
-  if (tab === "chat") { S.unread = false; $("unread").hidden = true; scrollChat(); }
-  if (tab === "doc") fitAreas();
+  const both = S.both;
+  $("tab-doc").setAttribute("aria-selected", !both && tab === "doc");
+  $("tab-chat").setAttribute("aria-selected", !both && tab === "chat");
+  $("tab-both").setAttribute("aria-selected", both);
+  $("right").classList.toggle("both", both);
+  $("panel-doc").hidden = !both && tab !== "doc";
+  $("panel-chat").hidden = !both && tab !== "chat";
+  if (both || tab === "chat") { S.unread = false; $("unread").hidden = true; scrollChat(); }
+  if (both || tab === "doc") fitAreas();
 }
-$("tab-doc").addEventListener("click", () => setTab("doc"));
-$("tab-chat").addEventListener("click", () => setTab("chat"));
+function setBoth(on, tab) {
+  S.both = on;
+  try { localStorage.setItem("cagent-both", on ? "1" : "0"); } catch (_) { /* storage off */ }
+  setTab(tab);
+}
+try { S.both = localStorage.getItem("cagent-both") === "1"; } catch (_) { S.both = false; }
+$("tab-doc").addEventListener("click", () => setBoth(false, "doc"));
+$("tab-chat").addEventListener("click", () => setBoth(false, "chat"));
+$("tab-both").addEventListener("click", () => setBoth(true, S.tab));
 
 // ---------- chat ----------
 async function loadMessages() {
@@ -1670,7 +1718,7 @@ async function loadMessages() {
   const fresh = data.filter((m) => m.id > S.lastMsg);
   S.msgs = data;
   S.lastMsg = data.length ? data[data.length - 1].id : 0;
-  if (S.msgsLoaded && fresh.some((m) => m.role !== "user") && S.tab !== "chat") { S.unread = true; $("unread").hidden = false; }
+  if (S.msgsLoaded && fresh.some((m) => m.role !== "user") && S.tab !== "chat" && !S.both) { S.unread = true; $("unread").hidden = false; }
   S.msgsLoaded = true;
   renderChat();
 }
@@ -1682,28 +1730,72 @@ function renderChat() {
   scrollChat();
 }
 function scrollChat() { const box = $("messages"); box.scrollTop = box.scrollHeight; }
-function messageEl(m) {
+// The AI writes suggested answers as "추천: …" lines; on its latest message they become one-click replies.
+const QUICK = /^추천\s*:\s*(.+)$/;
+function messageEl(m, i, all) {
   if (m.kind === "card") return cardEl(m);
   if (m.kind === "notice") return el("div", { class: "msg system" }, m.body.text);
   if (m.kind === "polish") return el("div", { class: "msg user" }, "한국어 다듬기를 요청했습니다.");
-  return el("div", { class: `msg ${m.role}` }, m.body.text);
+  const box = el("div", { class: `msg ${m.role}` }, m.body.text);
+  if (m.role !== "ai" || i !== all.length - 1) return box;
+  const picks = String(m.body.text || "").split("\n").map((l) => l.trim().match(QUICK)?.[1].trim()).filter(Boolean);
+  return picks.length ? el("div", { class: "msg-wrap" }, box,
+    el("div", { class: "quick", role: "group", "aria-label": "추천 답" }, ...picks.map((p) => el("button", { type: "button", on: { click: () => sendMessage(p) } }, p)))) : box;
 }
 function cardEl(m) {
   const c = m.body, done = m.status !== "pending";
   const status = { applied: "적용함", dismissed: "닫음", pending: "" }[m.status] || "";
+  const items = c.patch || [], picks = new Map();
+  const targets = [...new Set([...(c.targets || []), ...items.map((it) => it.target)])];
+  const applyBtn = el("button", { type: "button", class: "primary", on: { click: (e) => {
+    e.currentTarget.disabled = true;
+    applyCard(m, c.patch ? [...picks].filter(([, box]) => box.checked).map(([k]) => k) : null);
+  } } }, "적용");
+  const patchList = items.length ? el("div", { class: "patch" }, ...items.map((it) => {
+    const pick = done ? null : el("input", { type: "checkbox", checked: true, "aria-label": `${it.label} 적용`,
+      on: { change: () => { const n = [...picks.values()].filter((b) => b.checked).length; applyBtn.disabled = !n; applyBtn.textContent = n === items.length ? "적용" : `${n}개 적용`; } } });
+    if (pick) picks.set(it.key, pick);
+    return el("div", { class: "patch-item" }, pick,
+      el("details", { open: !done && items.length <= 3 ? true : null },
+        el("summary", {}, el("span", { class: `op ${it.op}` }, OP_LABEL[it.op]), " ", it.label), ...diffRows(it)));
+  })) : null;
   const box = el("div", { class: `card${done ? " done" : ""}` },
     el("h3", { text: c.title || (c.kind === "polish" ? "한국어 다듬기" : "제안") }),
     c.criterion || (c.targets || []).length ? el("div", { class: "meta" }, [c.criterion, (c.targets || []).join(", ")].filter(Boolean).join(" · ")) : null,
     c.reason ? el("div", {}, el("strong", {}, "근거 "), c.reason) : null,
     (c.changes || []).length ? el("ul", {}, ...c.changes.map((x) => el("li", {}, x))) : null,
     c.effect ? el("div", {}, el("strong", {}, "효과 "), c.effect) : null,
+    patchList,
     done ? el("div", { class: "meta" }, status)
-      : el("div", { class: "row" },
-        el("button", { type: "button", class: "primary", on: { click: (e) => { e.currentTarget.disabled = true; applyCard(m); } } }, "적용"),
-        el("button", { type: "button", on: { click: () => dismissCard(m) } }, "닫기")));
-  box.addEventListener("mouseenter", () => highlight(c.targets || [], true));
-  box.addEventListener("mouseleave", () => highlight(c.targets || [], false));
+      : el("div", { class: "row" }, applyBtn, el("button", { type: "button", on: { click: () => dismissCard(m) } }, "닫기")));
+  box.addEventListener("mouseenter", () => highlight(targets, true));
+  box.addEventListener("mouseleave", () => highlight(targets, false));
   return box;
+}
+// A card's patch: one row per target, each with its changed fields as before → after.
+const OP_LABEL = { add: "추가", change: "변경", remove: "삭제" };
+const EXTRA_LABELS = {
+  tool: { kind: "종류", name: "이름", purpose: "용도", location: "위치·접속", alternative: "대안", ref: "에이전트" },
+  glossary: { name: "이름", meaning: "뜻", fields: "필드" },
+};
+function fieldLabel(kind, key) {
+  const f = (S.schema[kind] || []).find((x) => x[0] === key);
+  return f ? f[1] : EXTRA_LABELS[kind]?.[key] || key;
+}
+function valText(v) {
+  if (v === null || v === undefined) return "";
+  if (Array.isArray(v)) return v.map((x) => (x && typeof x === "object" ? Object.values(x).filter((y) => y !== "" && y != null).map(valText).join(" · ") : String(x))).join("\n");
+  if (typeof v === "object") return Object.entries(v).map(([k, x]) => `${k}: ${valText(x)}`).join("\n");
+  return String(v);
+}
+function diffRows(it) {
+  const row = (label, before, after) => el("div", { class: "diff" }, el("div", { class: "diff-label" }, label),
+    before ? el("div", { class: "old" }, before) : null, after ? el("div", { class: "new" }, after) : null);
+  if (it.op === "remove") return [el("div", { class: "meta" }, "이 항목을 지웁니다.")];
+  if (it.kind === "project") return [row(it.label.replace(/^프로젝트 · /, ""), valText(it.before), valText(it.after))];
+  const before = it.before || {}, after = it.after || {};
+  const keys = [...new Set([...Object.keys(after), ...Object.keys(before)])].filter((k) => k !== "id" && JSON.stringify(before[k] ?? "") !== JSON.stringify(after[k] ?? ""));
+  return keys.map((k) => row(fieldLabel(it.kind === "link" ? "link" : it.kind, k), valText(before[k]), valText(after[k])));
 }
 function highlight(targets, on) {
   if (!cy) return;
@@ -1719,9 +1811,9 @@ function highlight(targets, on) {
     cy.$id(id)[on ? "addClass" : "removeClass"]("hl");
   }
 }
-async function applyCard(m) {
+async function applyCard(m, keys = null) {
   await flushSave();
-  const res = await api("POST", `/api/cards/${m.id}/apply`);
+  const res = await api("POST", `/api/cards/${m.id}/apply`, keys ? { keys } : {});
   if (!res.ok) modal("적용할 수 없음", [el("p", {}, res.data.error || "")], [["닫기", closeModal]]);
   await reloadDoc();
   loadMessages();
@@ -1748,10 +1840,15 @@ async function sendChat() {
   const text = $("chat-input").value.trim();
   if (!text || !S.pid) return;
   $("chat-input").value = "";
+  if (!await sendMessage(text)) $("chat-input").value = text;
+}
+// Sends one user message to the AI (the chat box and the doc panel's buttons share this path).
+async function sendMessage(text) {
   await flushSave();
   const res = await api("POST", `/api/projects/${S.pid}/messages`, { role: "user", text });
-  if (!res.ok) { $("chat-input").value = text; modal("보내지 못함", [el("p", {}, res.data.error || "메시지를 보내지 못했습니다.")], [["닫기", closeModal]]); return; }
+  if (!res.ok) { modal("보내지 못함", [el("p", {}, res.data.error || "메시지를 보내지 못했습니다.")], [["닫기", closeModal]]); return false; }
   loadMessages();
+  return true;
 }
 
 // ---------- export ----------
@@ -1781,6 +1878,7 @@ async function openExport() {
     const res = await api("POST", `/api/projects/${S.pid}/export`, { path: input.value });
     if (!res.ok) { result.replaceChildren(el("p", { class: "issues" }, res.data.error)); return; }
     S.exportPath = input.value;
+    renderSteps();
     const d = res.data;
     result.replaceChildren(...[el("p", { class: "ok" }, `${d.path}에 ${d.written}개 파일을 내보냈습니다.`),
       d.removed.length ? el("p", { class: "muted" }, `이전 내보내기의 파일 ${d.removed.length}개를 정리했습니다.`) : null,
