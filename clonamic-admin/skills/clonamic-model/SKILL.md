@@ -22,8 +22,8 @@ Runs only on the explicit `/clonamic-model` command or an explicit model-change 
 3. **PROPAGATE only machine settings that consume the role.** Grok direct config stores
    `default_reasoning_effort` but no model default; its wrapper resolves `cli-default` per call. Do not
    propagate `gpt_exec` to `~/.codex/config.toml`: those are interactive Codex defaults.
-4. **RE-VERIFY**: `model-registry-check.py` must end clean; if any selftest contract pins model behavior, run and repin in the same session. `config-doctor.py` is owner-only and is NOT shipped — skip it when absent.
-5. **BACKUP**: `~/.claude/hooks/backup-to-git.sh`. Report outcome-first: role, old → new, validation evidence.
+4. **RE-VERIFY**: `model-registry-check.py` must end clean; if any selftest contract pins model behavior, run and repin in the same session.
+5. **BACKUP**: run the user's configured backup step, if any. Report outcome-first: role, old → new, validation evidence.
 
 Rules: model selectors/ids live ONLY in the registry — refuse any request to hardcode one elsewhere
 (core rule 2). An explicit id stays pinned; `cli-default` deliberately follows the backend default.

@@ -1,6 +1,6 @@
 # 플러그인 규칙
 
-Agent Plugins 1.0.0 표준을 따른다. Claude만 규격이 달라서 `.claude-plugin/`을 추가하는데, 이 파일은 손으로 쓰지 않고 스크립트로 만든다(아래 "매니페스트 동기화").
+Agent Plugins 1.0.0 표준을 따른다. Claude만 규격이 달라서 `.claude-plugin/`을 추가하는데, 원본 `plugin.json`을 고친 뒤 같은 값을 맞춘다(아래 "매니페스트 동기화").
 
 ## 계층
 
@@ -41,7 +41,7 @@ plugin-name/
 │       └── assets/              # 선택. 결과물에 넣는 템플릿·파일
 ├── agents/                      # 선택. 서브에이전트(Claude·Grok·Cursor). 없어도 스킬이 동작해야 함
 ├── mcp.json                     # 선택. MCP 서버
-├── tests/                       # 로컬 전용. git에 올리지 않음(.gitignore)
+├── tests/                       # 선택. 로컬 시험(배포에 포함하지 않음)
 ├── LICENSE
 └── THIRD_PARTY_NOTICES.md       # 외부 자료를 가져왔을 때만
 ```
@@ -70,7 +70,7 @@ my-plugin/
 │   └── core/                    # 공통 로직과 스킬 사이 계약
 ├── skills/
 │   └── skill-name/SKILL.md      # 명령 한 줄로 호출. 분기 판단은 description과 본문이 맡는다
-└── tests/                       # 로컬 전용. git에 올리지 않음(.gitignore)
+└── tests/                       # 선택. 로컬 시험(배포에 포함하지 않음)
 ```
 
 - 외부 패키지가 꼭 필요하면 스크립트 머리에 PEP 723 메타데이터(`# /// script`, `requires-python`, `dependencies`)를 적고 `uv run`으로 실행한다.
@@ -97,4 +97,3 @@ grep -h '"version"' plugin.json .*-plugin/plugin.json   # 커밋 전 확인. 플
 
 - `"skills": "./skills/"`는 루트에 넣지 않는다. 표준 스키마에 없는 키이고, `skills/`는 자동으로 탐색된다.
 - 역도메인 폴더(`io.github.*/`)는 어느 호스트도 읽지 않는다. 만들지 않는다.
-- 비공개 플러그인은 `UNLISTED`에 넣으면 마켓플레이스 목록에서 빠진다.
