@@ -60,9 +60,9 @@ python3 "$SKILL_DIR/scripts/tasklog.py" --agent-dir <에이전트 폴더> korean
    | Claude Code | `claude plugin marketplace add clonamic/plugin` 다음 `claude plugin install clonamic-korean@clonamic` |
    | Codex | `codex plugin marketplace add clonamic/plugin` 다음 `codex plugin add clonamic-korean@clonamic` |
    | Cursor | `git clone --depth 1 https://github.com/clonamic/plugin /tmp/clonamic-plugin && cp -R /tmp/clonamic-plugin/clonamic-korean ~/.cursor/plugins/local/clonamic-korean` |
-   | Grok | `grok plugin install https://github.com/clonamic/plugin#clonamic-korean --trust` 다음 `grok plugin enable clonamic-korean` |
+   | Grok | `grok plugin install https://github.com/clonamic/plugin#clonamic-korean` 다음 `grok plugin enable clonamic-korean` |
 
-   설치 뒤 `korean`을 한 번 더 실행해 확인한다. 설치가 실패하면 이유를 한 줄로 말하고, 작성자 에이전트에 들어 있는 최소 문체 규칙만으로 계속한다. 멈추지 않는다.
+   설치 뒤 `korean`을 한 번 더 실행해 확인한다. 설치가 실패하면 이유를 한 줄로 말하고, 작성자 에이전트에 들어 있는 최소 문체 규칙만으로 계속한다. 멈추지 않는다. Grok이 신뢰 확인(`--trust`)을 요구하며 실패하면 `--trust`를 붙여 직접 실행하지 말고, 사용자가 직접 실행할 명령을 한 줄로 알린다.
 
 ## 3. 수집
 
