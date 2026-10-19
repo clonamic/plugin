@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Compare a Korean source text with its revision and flag what a reviser must not change.
 
-Deterministic, stdlib only, Python >= 3.12. It does not judge style. It checks the
-failure modes models reliably miss in their own output.
+Deterministic, stdlib only, Python >= 3.12. It checks factual/structural preservation
+and common stylistic regressions that models frequently miss in their own output.
 
 Revision mode (--before and --after)
 
@@ -38,10 +38,13 @@ Revision mode (--before and --after)
     heading_changed      a markdown heading was removed or added
     contrast_wiped       5+ contrast parallels in the source, none left
 
-Draft mode (--after only): empty_output, length_over, spelling, and the wording
-lists above counted as plain presence.
+Draft mode (--after only): empty_output, length_over, spelling, the wording lists above
+counted as presence, plus draft rhythm/style warnings (register_shift when registers mix,
+monotone_ending when the same sentence ending repeats 5+ times in a paragraph, and
+long_sentence when a single sentence exceeds 220 chars with heavy clause chaining).
 
 Every run reports the character count with and without whitespace.
+Both --before and --after accept '-' to read from standard input.
 
 Exit codes: 0 pass, 1 warnings, 2 violations, 3 input error.
 
@@ -72,6 +75,8 @@ from pathlib import Path
 
 WARN_RATE = 0.30
 STOP_RATE = 0.50
+LONG_SENTENCE_CHARS = 120
+MONOTONE_RUN = 5
 
 
 @dataclass(frozen=True)
@@ -84,16 +89,21 @@ class Finding:
 
 FENCE = re.compile(r"^```.*?^```[ \t]*$", re.MULTILINE | re.DOTALL)
 INLINE_CODE = re.compile(r"`([^`\n]+)`")
+TABLE_ROW = re.compile(r"^[ \t]*\|.*\|[ \t]*$", re.MULTILINE)
 
 
 def normalize(text: str) -> str:
-    text = unicodedata.normalize("NFC", text).replace("\r\n", "\n").replace(" ", " ")
-    return re.sub("[​-‍⁠﻿]", "", text)
+    text = unicodedata.normalize("NFC", text).replace("\r\n", "\n").replace("\u00a0", " ")
+    return re.sub("[\u200b-\u200d\u2060\ufeff]", "", text)
+
+
+def _blank_preserve_lines(match: re.Match[str]) -> str:
+    return re.sub(r"[^\n]", " ", match.group(0))
 
 
 def prose(text: str) -> str:
-    """Text with fenced blocks and inline code removed."""
-    return INLINE_CODE.sub(" ", FENCE.sub("", text))
+    """Text with fenced blocks and inline code blanked out (preserving line numbers)."""
+    return INLINE_CODE.sub(_blank_preserve_lines, FENCE.sub(_blank_preserve_lines, text))
 
 
 def char_counts(text: str) -> tuple[int, int]:
@@ -143,16 +153,19 @@ def change_rate(before: str, after: str) -> float:
 
 
 # ----------------------------------------------------------------------------- numbers
-# "10,000원", "10000원" and "1만 원" are the same value. List numbering is not a value.
+# "10,000원", "10000원" and "1만 원" are the same value. List numbering and alphanumeric
+# identifiers (A1-N2, v1.4.0, UTF-8, SHA-256) are not numeric quantities.
 
 LIST_NUMBER = re.compile(r"^(\s*(?:#{1,6}\s*)?)\d+(?:\.\d+)*[.)]\s", re.MULTILINE)
+IDENT_TOKEN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]+-?\d+(?:[.-][A-Za-z0-9]+)*")
 NUMBER = re.compile(r"(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?([십백천만억조]*)")
 UNIT_VALUE = {"십": 10**1, "백": 10**2, "천": 10**3, "만": 10**4, "억": 10**8, "조": 10**12}
 
 
 def number_values(text: str) -> set[str]:
     found: set[str] = set()
-    for whole, frac, units in NUMBER.findall(LIST_NUMBER.sub(r"\1", prose(text))):
+    cleaned = IDENT_TOKEN.sub(" ", LIST_NUMBER.sub(r"\1", prose(text)))
+    for whole, frac, units in NUMBER.findall(cleaned):
         value = float(whole.replace(",", "") + frac)
         for unit in units:
             value *= UNIT_VALUE[unit]
@@ -193,6 +206,18 @@ def attributed(text: str, start: int, end: int) -> bool:
     right = min(right_candidates) if right_candidates else len(text)
     sentence = text[left:start] + " " + text[end:right]
     return any(stem in sentence for stem in SPEECH_STEMS)
+
+
+def unquoted_prose(text: str) -> str:
+    """Prose with speaker-attributed quotes blanked out (preserving line numbers)."""
+    body = prose(text)
+    chars = list(body)
+    for _, start, end in quotes(body):
+        if attributed(body, start, end):
+            for i in range(start, end):
+                if chars[i] != "\n":
+                    chars[i] = " "
+    return "".join(chars)
 
 
 # ----------------------------------------------------------------------------- protected tokens
@@ -263,10 +288,39 @@ def modality_counts(text: str) -> tuple[Counter[str], Counter[str]]:
     return deontic, hedge
 
 
-# ----------------------------------------------------------------------------- register
+# ----------------------------------------------------------------------------- register & sentences
 
 SENTENCE = re.compile(r"[^.?!\n]+[.?!]?")
+HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", re.MULTILINE)
 NOUNS_ENDING_IN_YO = {"필요", "중요", "주요", "개요", "수요", "소요", "강요", "요요", "동요", "풍요"}
+
+
+def _has_ssangsiot_batchim(char: str) -> bool:
+    code = ord(char) - 0xAC00
+    return 0 <= code < 11172 and code % 28 == 20
+
+
+def _ending_signature(sentence: str) -> str | None:
+    s = sentence.strip().rstrip(" \"'”’)]}.?!…")
+    if len(s) < 2 or not ("가" <= s[-1] <= "힣"):
+        return None
+    if s.endswith("입니다"):
+        return "-입니다"
+    if s.endswith("니다") and len(s) >= 3:
+        return "-았/었습니다" if _has_ssangsiot_batchim(s[-3]) else "-ㅂ/습니다"
+    if s.endswith("요") and s[-2:] not in NOUNS_ENDING_IN_YO:
+        if len(s) >= 3 and _has_ssangsiot_batchim(s[-3]):
+            return "-았/었어요"
+        return "-아요/어요"
+    if s.endswith("다"):
+        return "-았/었다" if _has_ssangsiot_batchim(s[-2]) else "-다"
+    return None
+
+
+def _non_table_heading_prose(text: str) -> str:
+    body = prose(text)
+    body = HEADING.sub(_blank_preserve_lines, body)
+    return TABLE_ROW.sub(_blank_preserve_lines, body)
 
 
 def register_of(sentence: str) -> str | None:
@@ -283,11 +337,11 @@ def register_of(sentence: str) -> str | None:
 
 
 def dominant_register(text: str) -> str | None:
-    tally = Counter(r for r in map(register_of, SENTENCE.findall(prose(text))) if r)
-    if not tally:
+    tally_reg = Counter(r for r in map(register_of, SENTENCE.findall(_non_table_heading_prose(text))) if r)
+    if not tally_reg:
         return None
-    name, top = tally.most_common(1)[0]
-    return name if top >= 3 and top * 2 > sum(tally.values()) else None
+    name, top = tally_reg.most_common(1)[0]
+    return name if top >= 3 and top * 2 > sum(tally_reg.values()) else None
 
 
 # ----------------------------------------------------------------------------- wording lists
@@ -305,8 +359,8 @@ WORDING: dict[str, tuple[str, ...]] = {
     ),
     "cliche_added": (
         "기록적인 성과", "괄목할 만한", "로 평가된다", "로 평가받", "주목받", "크게 기여",
-        "중요한 역할을 한", "시사하는 바가 크", "의미가 크다", "새로운 장을 열", "지평을 열",
-        "앞서 말씀드린", "앞서 설명했듯이", "다음과 같습니다",
+        "중요한 역할을 한", "시사하는 바가 크", "의미가 크다", "라는 점에서 의의가 있",
+        "새로운 장을 열", "지평을 열", "앞서 말씀드린", "앞서 설명했듯이", "다음과 같습니다",
     ),
     "nominal_added": (
         "로 인한", "으로 인한", "현상이 발생", "가 발생했", "이 발생했",
@@ -331,6 +385,24 @@ WORDING: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Short standalone terms that could falsely match inside longer compound words (e.g. 대폭발, 소위원회).
+_STANDALONE_GUARD = {"대폭", "소위", "격상", "니즈", "흔히", "이른바"}
+_LATIN_GUARD = {"To-Be", "As-Is", "Deep Dive", "deep dive", "impact"}
+
+
+def _term_pattern(word: str) -> re.Pattern[str]:
+    esc = re.escape(word)
+    if word in _LATIN_GUARD:
+        return re.compile(rf"(?<![A-Za-z0-9]){esc}(?![A-Za-z0-9])")
+    if word in _STANDALONE_GUARD:
+        return re.compile(rf"(?<![가-힣A-Za-z0-9]){esc}(?=$|[\s.,!?;:()\[\]\"'”’]|적|하|되|됐|된)")
+    return re.compile(esc)
+
+
+_TERM_PATTERNS: dict[str, re.Pattern[str]] = {
+    w: _term_pattern(w) for words in WORDING.values() for w in words
+}
+
 # Forms with exactly one correct replacement (plus the always-wrong honorific -실게요).
 # Ambiguous cases (에요/예요, 로서/로써, 바램) need context and are left to the reviser.
 MISSPELLING: dict[str, str] = {
@@ -348,21 +420,48 @@ MISSPELLING: dict[str, str] = {
 EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿⭐⬆↔-⇿]")
 BOLD = re.compile(r"\*\*[^*\n]+\*\*|__[^_\n]+__")
 NUMBERED = re.compile(r"^\s*(?:#{1,6}\s*)?\d+(?:\.\d+)*[.)]\s", re.MULTILINE)
-HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", re.MULTILINE)
 CONTRAST = ("가 아니라", "이 아니라", "것이 아니라", "것은 아니다", "인가, ")
 
 
+def _count_term(text: str, word: str) -> int:
+    pat = _TERM_PATTERNS.get(word)
+    return len(pat.findall(text)) if pat else text.count(word)
+
+
+def _first_line(text: str, word: str) -> int | None:
+    pat = _TERM_PATTERNS.get(word)
+    m = pat.search(text) if pat else None
+    if m is not None:
+        return text.count("\n", 0, m.start()) + 1
+    idx = text.find(word)
+    return text.count("\n", 0, idx) + 1 if idx >= 0 else None
+
+
 def tally(text: str, words: tuple[str, ...]) -> Counter[str]:
-    return Counter({w: n for w in words if (n := text.count(w))})
+    return Counter({w: n for w in words if (n := _count_term(text, w))})
 
 
 def grown(before: str, after: str, words: tuple[str, ...]) -> list[str]:
     old, new = tally(before, words), tally(after, words)
-    return [f"{w} {old.get(w, 0)}→{n}" for w, n in new.items() if n > old.get(w, 0)]
+    multiline = "\n" in after
+    out: list[str] = []
+    for w, n in new.items():
+        if n > old.get(w, 0):
+            line = _first_line(after, w) if multiline else None
+            loc = f" ({line}행)" if line else ""
+            out.append(f"{w} {old.get(w, 0)}→{n}{loc}")
+    return out
 
 
 def spelling_findings(text: str) -> list[Finding]:
-    hits = [f"{bad}→{good} ×{n}" for bad, good in MISSPELLING.items() if (n := prose(text).count(bad))]
+    body = unquoted_prose(text)
+    multiline = "\n" in body
+    hits: list[str] = []
+    for bad, good in MISSPELLING.items():
+        if n := body.count(bad):
+            line = _first_line(body, bad) if multiline else None
+            loc = f" ({line}행)" if line else ""
+            hits.append(f"{bad}→{good} ×{n}{loc}")
     return [Finding("spelling", "맞춤법·높임 의심: " + ", ".join(hits))] if hits else []
 
 
@@ -374,6 +473,55 @@ def length_findings(text: str, limit: int | None, no_spaces: bool) -> list[Findi
     if size > limit:
         return [Finding("length_over", f"{label} {size}자 — 한도 {limit}자를 {size - limit}자 넘음")]
     return []
+
+
+def draft_style_findings(text: str) -> list[Finding]:
+    """Draft-only rhythm and register checks (warnings only)."""
+    findings: list[Finding] = []
+    body = _non_table_heading_prose(unquoted_prose(text))
+
+    # 1. Mixed register across prose sentences (e.g. 합쇼체 mixed with 한다체).
+    reg_counts = Counter(r for r in map(register_of, SENTENCE.findall(body)) if r)
+    if len(reg_counts) >= 2 and sum(reg_counts.values()) >= 4:
+        ordered = reg_counts.most_common()
+        top_name, top_n = ordered[0]
+        sec_name, sec_n = ordered[1]
+        # Warn when a conflicting formal/plain register appears at least twice (or 25%+).
+        if sec_n >= 2 or sec_n / sum(reg_counts.values()) >= 0.25:
+            findings.append(
+                Finding("register_shift", f"문체 높낮이 혼용: {top_name} {top_n}문장, {sec_name} {sec_n}문장")
+            )
+
+    # 2. Monotone sentence endings within a single paragraph (5+ identical endings in a row).
+    for para_match in re.finditer(r"[^\n]+(?:\n(?!\s*(?:[-*+]|\d+[.)]|#|\n))[^\n]+)*", body):
+        para = para_match.group(0)
+        if re.match(r"^\s*(?:[-*+]|\d+[.)])\s", para):
+            continue
+        endings = [sig for s in SENTENCE.findall(para) if (sig := _ending_signature(s))]
+        run_word, run_len = "", 0
+        for e in endings:
+            if e == run_word:
+                run_len += 1
+                if run_len == MONOTONE_RUN:
+                    line = body.count("\n", 0, para_match.start()) + 1
+                    findings.append(
+                        Finding("monotone_ending", f"같은 종결('{e}') {run_len}회 연속 ({line}행) — 연결어미로 호흡을 섞으세요")
+                    )
+                    break
+            else:
+                run_word, run_len = e, 1
+
+    # 3. Overly long run-on sentence (> 220 chars with 3+ commas).
+    for m in SENTENCE.finditer(body):
+        sent = m.group(0).strip()
+        if len(sent) > LONG_SENTENCE_CHARS and sent.count(",") >= 3:
+            line = body.count("\n", 0, m.start()) + 1
+            findings.append(
+                Finding("long_sentence", f"긴 문장 {len(sent)}자 ({line}행) — 절을 나누거나 핵심 명사를 앞으로 보내세요")
+            )
+            break
+
+    return findings
 
 
 # ----------------------------------------------------------------------------- checks
@@ -449,8 +597,9 @@ def check(
     if (n_after := after.count("하였")) > (n_before := before.count("하였")):
         warn.append(Finding("register_shift", f"'하였' {n_before}→{n_after} (격식 올림)"))
 
+    before_prose, after_prose = unquoted_prose(before), unquoted_prose(after)
     for code, words in WORDING.items():
-        if hits := grown(prose(before), prose(after), words):
+        if hits := grown(before_prose, after_prose, words):
             warn.append(Finding(code, ", ".join(hits)))
 
     warn += spelling_findings(after)
@@ -486,9 +635,11 @@ def check_draft(text: str, *, limit: int | None = None, no_spaces: bool = False)
     text = normalize(text)
     if not text.strip():
         return _result(None, text, [Finding("empty_output", "결과가 비어 있습니다")], [])
+    body = unquoted_prose(text)
     warn = [Finding(code, ", ".join(hits)) for code, words in WORDING.items()
-            if (hits := grown("", prose(text), words))]
+            if (hits := grown("", body, words))]
     warn += spelling_findings(text)
+    warn += draft_style_findings(text)
     return _result(None, text, length_findings(text, limit, no_spaces), warn)
 
 
@@ -517,18 +668,27 @@ def render(result: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+def _read_input(path_arg: str) -> str:
+    if path_arg == "-":
+        return sys.stdin.read()
+    return Path(path_arg).read_text(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="원문과 고친 글을 대조한다. 원문 없이 주면 초안만 점검한다.")
-    parser.add_argument("--before", help="원문 파일 (없으면 초안 점검)")
-    parser.add_argument("--after", required=True, help="고친 글 또는 초안 파일")
+    parser.add_argument("--before", help="원문 파일 또는 '-' (없으면 초안 점검)")
+    parser.add_argument("--after", required=True, help="고친 글/초안 파일 또는 '-'")
     parser.add_argument("--deep", action="store_true", help="깊게 고치기: 변경률 50%%를 경고로만 본다")
     parser.add_argument("--limit", type=int, help="글자 수 한도 (기본은 공백 포함)")
     parser.add_argument("--no-spaces", action="store_true", help="--limit을 공백 제외 글자 수로 센다")
     parser.add_argument("--json", action="store_true", help="JSON으로 출력")
     args = parser.parse_args(argv)
+    if args.before == "-" and args.after == "-":
+        print("입력 오류: --before와 --after에 동시에 '-'를 쓸 수 없습니다.", file=sys.stderr)
+        return 3
     try:
-        after = Path(args.after).read_text(encoding="utf-8")
-        before = Path(args.before).read_text(encoding="utf-8") if args.before else None
+        after = _read_input(args.after)
+        before = _read_input(args.before) if args.before else None
     except (OSError, UnicodeDecodeError) as error:
         print(f"입력 오류: {error}", file=sys.stderr)
         return 3
