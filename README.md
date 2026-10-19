@@ -1,6 +1,6 @@
 # 플러그인 규칙
 
-Agent Plugins 1.0.0 표준을 따른다. Claude만 규격이 달라서 `.claude-plugin/`을 추가하는데, 원본 `plugin.json`을 고친 뒤 같은 값을 맞춘다(아래 "매니페스트 동기화").
+Agent Plugins 1.0.0 표준을 따른다. 호스트마다 읽는 매니페스트가 달라서 `.claude-plugin/`, `.codex-plugin/`(agents/가 있으면 `.cursor-plugin/`도)을 두고, 원본 `plugin.json`을 고친 뒤 같은 값을 맞춘다(아래 "매니페스트 동기화").
 
 ## 계층
 
@@ -31,8 +31,9 @@ Agent Plugins 1.0.0 표준을 따른다. Claude만 규격이 달라서 `.claude-
 ```text
 plugin-name/
 ├── plugin.json                  # 원본 매니페스트. 손으로 고치는 유일한 매니페스트
-├── .claude-plugin/plugin.json   # 생성. Claude Code
-├── .codex-plugin/plugin.json    # 생성. Codex UI(interface)
+├── .claude-plugin/plugin.json   # 사본. Claude Code
+├── .codex-plugin/plugin.json    # 사본. Codex UI(interface)
+├── .cursor-plugin/plugin.json   # 사본. agents/가 있는 플러그인만
 ├── skills/
 │   └── skill-name/
 │       ├── SKILL.md             # 필수. frontmatter(name, description) + 절차
@@ -42,9 +43,14 @@ plugin-name/
 ├── agents/                      # 선택. 서브에이전트(Claude·Grok·Cursor). 없어도 스킬이 동작해야 함
 ├── mcp.json                     # 선택. MCP 서버
 ├── tests/                       # 선택. 로컬 시험(배포에 포함하지 않음)
+├── Docs/                        # 비공개 문서. git에 올리지 않음(.gitignore의 Docs/)
+├── README.md                    # 공개. 플러그인 설명과 철학
 ├── LICENSE
 └── THIRD_PARTY_NOTICES.md       # 외부 자료를 가져왔을 때만
 ```
+
+- **Docs 폴더.** 플러그인마다 하나씩 둔다. 개발 과정, 명세서 기록, 분석 자료, 설계 메모, 검증 기록처럼 배포에 필요 없는 문서는 모두 여기에 넣는다.
+- 배포에 꼭 필요한 파일은 Docs에 두지 않는다. 대상: 스킬(`skills/**`, 스킬이 실행 중에 읽는 `references/` 포함), README.md, LICENSE, THIRD_PARTY_NOTICES.md, 매니페스트, `agents/*.md`, `AGENTS.md`.
 
 ## 코드를 쓰는 플러그인
 
@@ -87,12 +93,13 @@ plugin.json                          # 원본. $schema 필수, 표준 키만, �
 .claude-plugin/plugin.json           # 사본. Claude Code
 .codex-plugin/plugin.json            # 사본. Codex UI. interface는 이 파일에만 둔다
 .cursor-plugin/plugin.json           # 사본. agents/가 있는 플러그인만
-../.claude-plugin/marketplace.json   # 목록. Claude·Cursor·Grok(Codex도 읽음)
+../.claude-plugin/marketplace.json   # 목록. Claude·Cursor·Grok(Codex도 읽음). 항목마다 version을 plugin.json과 같게
 ../.agents/plugins/marketplace.json  # 목록. Codex
 ```
 
 ```bash
 grep -h '"version"' plugin.json .*-plugin/plugin.json   # 커밋 전 확인. 플러그인 폴더에서 실행하고 값이 모두 같아야 한다
+grep -A2 '"name": "<플러그인 이름>"' ../.claude-plugin/marketplace.json | grep version   # 목록의 version도 같은 값
 ```
 
 - `"skills": "./skills/"`는 루트에 넣지 않는다. 표준 스키마에 없는 키이고, `skills/`는 자동으로 탐색된다.

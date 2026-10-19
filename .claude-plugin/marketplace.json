@@ -6,58 +6,75 @@
   "description": "Clonamic skills for Claude Code, Codex, Cursor, and Grok.",
   "plugins": [
     {
+      "name": "clonamic-ai-html-ppt",
+      "source": "./clonamic-ai-html-ppt",
+      "version": "0.1.0",
+      "description": "Open a local Figma-style HTML slide and document editor (A4 to 16:9 pages, every Figma shape, fills, strokes, effects, auto layout, per-page PDF export) and let your own AI edit the deck element by element, with one explicit /clonamic-ai-html-ppt command."
+    },
+    {
       "name": "clonamic-code",
       "source": "./clonamic-code",
+      "version": "2.1.0",
       "description": "Evidence-based modular design: library-style modules with single responsibilities, explicit contracts, and migration order."
     },
     {
       "name": "clonamic-create-agent",
       "source": "./clonamic-create-agent",
+      "version": "0.4.0",
       "description": "Design an agent pipeline with the user as a two-level graph (agents, then steps) in a local web editor, review it objectively, and export implementation-neutral Korean design documents with one explicit /clonamic-create-agent command."
     },
     {
       "name": "clonamic-data",
       "source": "./clonamic-data",
+      "version": "2.0.0",
       "description": "Dataset and Hugging Face workflow guidance: proportional pre-flight, streaming, validation, private publishing."
     },
     {
       "name": "clonamic-design",
       "source": "./clonamic-design",
+      "version": "2.0.0",
       "description": "UI design direction, UI review, real-browser QA, visual art, and hand-drawn diagrams that run on the host's own tools."
     },
     {
       "name": "clonamic-documents",
       "source": "./clonamic-documents",
+      "version": "2.0.0",
       "description": "Office documents built with the host's own tools: Korean HWPX editing with a structure validator, and editable PPTX decks with render-based QA."
     },
     {
       "name": "clonamic-executor",
       "source": "./clonamic-executor",
+      "version": "2.0.0",
       "description": "One bounded, read-only request through an installed agent CLI (Claude, Grok, or Hermes)."
     },
     {
       "name": "clonamic-git",
       "source": "./clonamic-git",
+      "version": "1.1.0",
       "description": "Git commits, PRs, tags, and release notes under the user's own identity with no AI attribution trailers, footers, or bot authors."
     },
     {
       "name": "clonamic-harness",
       "source": "./clonamic-harness",
+      "version": "2.5.0",
       "description": "Stage-by-stage working discipline for AI coding agents: read the request exactly, gate persistent changes behind at most two Korean approvals (작업명세서 only while intent is unsynced, then 개발명세서), add agents such as an independent reviewer only when they pay off, and finish with fresh-evidence verification and an outcome-first 보고서."
     },
     {
       "name": "clonamic-korean",
       "source": "./clonamic-korean",
+      "version": "2.2.0",
       "description": "Write and revise natural Korean documents (resumes, portfolios, reports, posts, docs) with one explicit /clonamic-korean command that keeps facts, numbers, quotes, and the author's voice fixed."
     },
     {
       "name": "clonamic-memory",
       "source": "./clonamic-memory",
+      "version": "1.1.0",
       "description": "Explicit local store, recall, forget, link, and bounded graph operations."
     },
     {
       "name": "clonamic-task-log",
       "source": "./clonamic-task-log",
+      "version": "1.4.2",
       "description": "Turn your own git work in the current project into a dated, portfolio-ready Korean work log with one explicit /clonamic-task-log command: local log files plus Notion pages, with importance scoring, estimated feature progress, and a redaction gate that keeps file names and secrets out."
     }
   ]

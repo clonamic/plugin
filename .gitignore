@@ -38,3 +38,6 @@ build/
 # tests stay local (run them from a checkout; they are not shipped)
 tests/
 test/
+
+# private process notes and documents
+Docs/
