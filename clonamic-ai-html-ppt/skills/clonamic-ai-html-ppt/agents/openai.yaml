@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clonamic AI HTML PPT"
+  short_description: "A Figma-style local slide and document editor your AI edits natively, with PDF export"
+  default_prompt: "Use $clonamic-ai-html-ppt to make a slide deck."
+policy:
+  allow_implicit_invocation: false

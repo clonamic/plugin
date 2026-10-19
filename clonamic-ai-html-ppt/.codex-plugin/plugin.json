@@ -1,0 +1,31 @@
+{
+  "name": "clonamic-ai-html-ppt",
+  "version": "0.1.0",
+  "description": "Open a local Figma-style HTML slide and document editor (A4 to 16:9 pages, every Figma shape, fills, strokes, effects, auto layout, per-page PDF export) and let your own AI edit the deck element by element, with one explicit /clonamic-ai-html-ppt command.",
+  "author": {
+    "name": "Clonamic"
+  },
+  "repository": "https://github.com/clonamic/plugin",
+  "license": "MIT",
+  "keywords": [
+    "slides",
+    "presentation",
+    "editor",
+    "pdf",
+    "korean"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Clonamic AI HTML PPT",
+    "shortDescription": "A Figma-style local slide and document editor your AI edits natively, with PDF export.",
+    "longDescription": "One command, /clonamic-ai-html-ppt, opens a local editor that works like the Figma canvas: pages from A4 to 16:9 in portrait or landscape, every Figma shape, multiple fills and strokes, shadows and blurs, blend modes, rich text, auto layout, tables, and presenter mode. Your AI edits the same deck node by node through a CLI, changes appear live, and any page or the whole deck exports to PDF exactly as it looks on the canvas.",
+    "developerName": "Clonamic",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Use Clonamic AI HTML PPT to make a slide deck."
+    ]
+  }
+}

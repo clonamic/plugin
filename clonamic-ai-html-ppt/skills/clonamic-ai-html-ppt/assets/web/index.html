@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="ppt-token" content="">
+<title>AI HTML PPT</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header id="topbar" class="chrome">
+  <div class="tb-left">
+    <button id="deck-menu" type="button" class="icon-btn" aria-label="덱 메뉴" title="덱 메뉴"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg></button>
+    <input id="deck-name" class="deck-name" aria-label="덱 이름" spellcheck="false" maxlength="200">
+    <span id="save-status" class="save-status" role="status" aria-live="polite"></span>
+  </div>
+  <div class="tb-right">
+    <button id="zoom-btn" type="button" class="ghost zoom-btn" aria-label="확대/축소 메뉴" title="확대/축소">100%</button>
+    <div class="split">
+      <button id="present-btn" type="button" class="primary" title="현재 페이지부터 발표"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M5 3.5l7 4.5-7 4.5z"/></svg><span>발표</span></button>
+      <button id="present-more" type="button" class="primary more" aria-label="발표 옵션" title="발표 옵션"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4.5 6.5L8 10l3.5-3.5"/></svg></button>
+    </div>
+    <button id="export-btn" type="button" class="ghost" title="PDF로 내보내기">내보내기</button>
+  </div>
+</header>
+
+<aside id="left" class="chrome side" aria-label="프레젠테이션, 페이지, 레이어">
+  <section id="deck-rail" aria-label="프레젠테이션 목록"></section>
+  <div class="tabs" role="tablist" aria-label="왼쪽 패널">
+    <button id="tab-pages" role="tab" type="button" aria-selected="true" aria-controls="panel-pages">페이지</button>
+    <button id="tab-layers" role="tab" type="button" aria-selected="false" aria-controls="panel-layers">레이어</button>
+  </div>
+  <section id="panel-pages" class="panel" role="tabpanel" aria-labelledby="tab-pages"></section>
+  <section id="panel-layers" class="panel" role="tabpanel" aria-labelledby="tab-layers" hidden></section>
+</aside>
+
+<main id="canvas" tabindex="0" aria-label="캔버스. 단축키 목록은 Control+Shift+물음표">
+  <div id="world"><div id="doc"></div></div>
+  <div id="pixel-grid" hidden aria-hidden="true"></div>
+  <svg id="overlay" aria-hidden="true"></svg>
+  <div id="labels"></div>
+  <div id="pins-layer" class="editor-layer"></div>
+  <div id="ai-layer" class="editor-layer"></div>
+  <canvas id="ruler-top" class="ruler" hidden aria-hidden="true"></canvas>
+  <canvas id="ruler-left" class="ruler" hidden aria-hidden="true"></canvas>
+  <div id="ruler-corner" hidden aria-hidden="true"></div>
+  <div id="toolbar" class="chrome floating no-canvas" role="toolbar" aria-label="도구"></div>
+</main>
+
+<aside id="right" class="chrome side" aria-label="속성과 AI 채팅">
+  <div class="tabs" role="tablist" aria-label="오른쪽 패널">
+    <button id="tab-ai" role="tab" type="button" aria-selected="true" aria-controls="panel-ai-wrap">AI <span id="ai-dot" class="dot" hidden aria-label="새 메시지"></span></button>
+    <button id="tab-design" role="tab" type="button" aria-selected="false" aria-controls="panel-design-wrap">디자인</button>
+  </div>
+  <section id="panel-ai-wrap" class="panel" role="tabpanel" aria-labelledby="tab-ai">
+    <div id="panel-ai"></div>
+  </section>
+  <section id="panel-design-wrap" class="panel" role="tabpanel" aria-labelledby="tab-design" hidden>
+    <div id="frame-presets" class="frame-presets" hidden></div>
+    <div id="panel-design"></div>
+  </section>
+</aside>
+
+<div id="picker" class="picker" hidden></div>
+
+<script src="/vendor/polygon-clipping-0.15.7.min.js"></script>
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>

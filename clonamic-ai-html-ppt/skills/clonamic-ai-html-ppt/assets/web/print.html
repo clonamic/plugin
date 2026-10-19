@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="ppt-token" content="">
+<title>인쇄</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; padding: 0; background: #fff; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .sheet { position: relative; overflow: hidden; break-after: page; page-break-after: always; margin: 0; }
+  .sheet:last-child { break-after: auto; page-break-after: auto; }
+  .sheet-root { position: absolute; left: 0; top: 0; zoom: 1.3333333333; }
+  @media screen { body { background: #888; } .sheet { margin: 16px auto; box-shadow: 0 2px 12px rgb(0 0 0 / 0.3); background: #fff; } }
+  #msg { font: 14px system-ui, sans-serif; padding: 24px; color: #fff; }
+</style>
+<script id="ppt-data" type="application/json"></script>
+</head>
+<body>
+<script src="/vendor/polygon-clipping-0.15.7.min.js"></script>
+<script type="module">
+  // Print page (format.md §6, §8): each requested page in its own named @page, 1 unit = 1 pt.
+  import { loadSchema } from "/js/schema.js";
+  import { createStore } from "/js/state.js";
+  import { createRenderer } from "/js/render.js";
+
+  const q = new URLSearchParams(location.search);
+  const say = (t) => { const d = document.createElement("div"); d.id = "msg"; d.textContent = t; document.body.append(d); };
+  async function data() {
+    let d = null;
+    try { d = JSON.parse(document.getElementById("ppt-data").textContent || "null"); } catch (_) { d = null; }
+    if (d && Array.isArray(d.nodes)) return d;
+    // Opened without inlined data: fetch the deck.
+    const deck = q.get("deck");
+    if (!deck) return null;
+    const r = await fetch(`/api/decks/${encodeURIComponent(deck)}`);
+    return r.ok ? r.json() : null;
+  }
+  const wait = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
+  async function main() {
+    await loadSchema("/schema.json");
+    const d = await data();
+    if (!d) { say("인쇄할 덱을 찾지 못했습니다."); window.__PPT_READY__ = true; return; }
+    const store = createStore(null, { deck: d.deck, nodes: d.nodes });
+    const all = store.childIds(null);
+    const asked = (Array.isArray(d.pages) && d.pages.length ? d.pages : (q.get("pages") || "").split(",").filter(Boolean));
+    const pages = (asked.length ? asked : all).filter((id) => store.get(id)?.type === "page");
+    document.title = d.deck?.name || "인쇄";
+    const mode = q.get("mode") || "print";
+    const rules = [], renderers = [];
+    if (mode === "snapshot") {
+      // One page region at CSS px × scale, region top-left at 0,0, body exactly w·s × h·s (format.md §9.5).
+      const id = pages[0], p = store.get(id).props;
+      const pw = Number(p.w) || 1920, ph = Number(p.h) || 1080;
+      let [x, y, w, h] = (q.get("rect") || "").split(",").map(Number);
+      if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) [x, y, w, h] = [0, 0, pw, ph];
+      x = Math.max(0, Math.min(x, pw)); y = Math.max(0, Math.min(y, ph));
+      w = Math.max(1, Math.min(w, pw - x)); h = Math.max(1, Math.min(h, ph - y));
+      let sc = Number(q.get("scale")) || 1;
+      sc = Math.max(0.05, Math.min(sc, 4, 4096 / w, 4096 / h));
+      const W = Math.round(w * sc), H = Math.round(h * sc);
+      document.documentElement.style.cssText = `width:${W}px;height:${H}px;overflow:hidden;background:#fff`;
+      document.body.style.cssText = `margin:0;width:${W}px;height:${H}px;overflow:hidden;position:relative;background:#fff`;
+      const root = document.createElement("div");
+      root.style.cssText = `position:absolute;left:0;top:0;width:${pw}px;height:${ph}px;transform-origin:0 0;transform:scale(${sc}) translate(${-x}px, ${-y}px)`;
+      document.body.append(root);
+      const r = createRenderer({ root, mode: "print", assetUrl: (hash) => `/assets/${hash}`, page: id });
+      r.mount(store);
+      renderers.push(r);
+    } else pages.forEach((id, i) => {
+      const p = store.get(id).props;
+      const w = Number(p.w) || 1920, h = Number(p.h) || 1080;
+      rules.push(`@page P${i} { size: ${w}pt ${h}pt; margin: 0; }`);
+      const sheet = document.createElement("section");
+      sheet.className = "sheet";
+      sheet.style.cssText = `page: P${i}; width: ${w * 4 / 3}px; height: ${h * 4 / 3}px;`;
+      const root = document.createElement("div");
+      root.className = "sheet-root";
+      if (mode === "measure") root.style.zoom = "1";   // measure in page units
+      root.style.width = `${w}px`; root.style.height = `${h}px`;
+      sheet.append(root);
+      document.body.append(sheet);
+      const r = createRenderer({ root, mode: "print", assetUrl: (hash) => `/assets/${hash}`, page: id });
+      r.mount(store);
+      renderers.push(r);
+    });
+    const style = document.createElement("style");
+    style.textContent = rules.join("\n");
+    document.head.append(style);
+    // Ready after fonts, every image, and video frames (bounded so export never hangs).
+    await wait(Promise.all([document.fonts.ready, ...renderers.map((r) => r.ready?.() || null)]), 15000);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const imgs = [...document.images].map((img) => img.decode().catch(() => {}));
+    const svgImgs = [...document.querySelectorAll("image")].map((im) => { const i = new Image(); i.src = im.getAttribute("href") || im.getAttribute("xlink:href") || ""; return i.src ? i.decode().catch(() => {}) : null; });
+    const bgs = [...document.querySelectorAll("[style*='url(']")].flatMap((n) => [...n.style.backgroundImage.matchAll(/url\(["']?([^"')]+)["']?\)/g)].map((m) => { const i = new Image(); i.src = m[1]; return i.decode().catch(() => {}); }));
+    const vids = [...document.querySelectorAll("video")].map((v) => (v.readyState >= 2 ? null : new Promise((res) => { v.addEventListener("loadeddata", res, { once: true }); v.addEventListener("error", res, { once: true }); v.preload = "auto"; })));
+    await wait(Promise.all([...imgs, ...svgImgs, ...bgs, ...vids]), 15000);
+    if (mode === "measure") {
+      // {id: {x, y, w, h, sw, sh}} for every text, table, and hugging auto-layout node (page coords; sw/sh = content scroll size).
+      const out = {};
+      // auto-layout frames/pages that hug on either axis are measured too (verify writes w/h back)
+      const hug = (n) => (n.type === "frame" || n.type === "page") && n.props.layout && n.props.layout.dir && n.props.layout.dir !== "NONE"
+        && (n.props.layout.sizingH === "HUG" || n.props.layout.sizingV === "HUG");
+      renderers.forEach((r, i) => {
+        const one = (cid) => {
+            const n = store.get(cid);
+            if (n.type === "text" || n.type === "table" || hug(n)) {
+              const m = r.measure(cid), elx = r.elementOf(cid);
+              if (m) {
+                const content = elx && (n.type === "text" ? elx.querySelector(":scope > .ppt-tx") : n.type === "table" ? elx.querySelector(".ppt-tb") : elx) || elx;
+                let sw = m.w, sh = m.h;
+                if (content) {
+                  sw = Math.max(content.scrollWidth, content.offsetWidth);
+                  sh = Math.max(content.scrollHeight, content.offsetHeight);
+                  if (n.type === "table") for (const cell of content.querySelectorAll("[data-cell]")) {
+                    // a clipped cell means the table content overflows: report the overflow on top of h
+                    const extra = cell.scrollHeight - cell.clientHeight;
+                    if (extra > 0.5) sh = Math.max(sh, m.h + extra);
+                  }
+                }
+                const r2 = (v) => Math.round(v * 100) / 100;
+                out[cid] = { x: r2(m.x), y: r2(m.y), w: r2(m.w), h: r2(m.h), sw: r2(sw), sh: r2(sh) };
+              }
+            }
+        };
+        const walk = (nid) => { for (const cid of store.childIds(nid)) { one(cid); walk(cid); } };
+        one(pages[i]);
+        walk(pages[i]);
+      });
+      const tag = document.createElement("script");
+      tag.id = "ppt-measure";
+      tag.type = "application/json";
+      tag.textContent = JSON.stringify(out).replace(/</g, "\\u003c");
+      document.body.append(tag);
+    }
+    window.__PPT_READY__ = true;
+    if (q.get("auto") === "1" && mode === "print") setTimeout(() => window.print(), 50);
+  }
+  main().catch((e) => { console.error(e); say("인쇄 화면을 만들지 못했습니다."); window.__PPT_READY__ = true; });
+</script>
+</body>
+</html>

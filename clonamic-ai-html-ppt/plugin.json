@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clonamic-ai-html-ppt",
+  "version": "0.1.0",
+  "description": "Open a local Figma-style HTML slide and document editor (A4 to 16:9 pages, every Figma shape, fills, strokes, effects, auto layout, per-page PDF export) and let your own AI edit the deck element by element, with one explicit /clonamic-ai-html-ppt command.",
+  "license": "MIT",
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "slides",
+    "presentation",
+    "editor",
+    "pdf",
+    "korean"
+  ],
+  "repository": "https://github.com/clonamic/plugin"
+}
