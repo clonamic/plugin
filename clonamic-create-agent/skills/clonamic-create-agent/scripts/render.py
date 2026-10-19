@@ -8,7 +8,7 @@ import re
 
 from checks import usage
 from graph import END, START, agent_name, by_id, edge_name, find, full, link_name, node_name
-from schema import EDGE_KINDS, FORMAT, tool_name
+from schema import EDGE_KINDS, FORMAT, VERSION, tool_name
 
 WARNING = "clonamic-create-agent 편집기에서 만든 문서다. 고칠 때는 편집기에서 고친다."
 
@@ -20,13 +20,46 @@ def slug(text: str) -> str:
     return re.sub(r"\s+", "_", text)[:40].rstrip(". _") or "이름없음"
 
 
+class Md(str):
+    """Markdown this renderer wrote (a link, a list of links): never escaped again."""
+
+
+def esc(text, full: bool = True) -> str:
+    """User text that must stay text: outside `code` spans, brackets stop forming links and < > stop forming tags.
+    `full` (table cells) escapes every bracket; body text only the "](" that would start a link."""
+    parts = str(text or "").split("`")
+    for i in range(0, len(parts), 2):
+        t = parts[i].replace("<", "&lt;").replace(">", "&gt;") if full else re.sub(r"<(?=[A-Za-z/!])", "&lt;", parts[i])
+        parts[i] = t.replace("[", "\\[").replace("]", "\\]") if full else t.replace("](", "\\](")
+    return "`".join(parts)
+
+
+def para(text) -> str:
+    return esc(str(text or "").strip(), full=False)
+
+
 def cell(text) -> str:
-    return str(text or "").strip().replace("|", "\\|").replace("\n", "<br>")
+    text = text if isinstance(text, Md) else esc(str(text or "").strip())
+    return str(text).strip().replace("|", "\\|").replace("\n", "<br>")
 
 
 def table(head: list[str], rows: list[list]) -> list[str]:
+    """A markdown table, or nothing when there are no rows (an empty table says nothing)."""
+    if not rows:
+        return []
     lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     return lines + ["| " + " | ".join(cell(c) for c in r) + " |" for r in rows]
+
+
+def anchor(heading: str) -> str:
+    """The id GitHub and most viewers give a heading: lower case, punctuation dropped, spaces as hyphens."""
+    return re.sub(r"[^\w\- ]", "", str(heading).strip().lower()).replace(" ", "-")
+
+
+def has_file(item: dict) -> bool:
+    """A link or edge gets its own file only when it says more than its row in a table: a condition, a loop,
+    or why it exists."""
+    return item.get("kind") == "cond" or bool(item.get("loop_exit")) or bool(str(item.get("intent", "")).strip())
 
 
 def mlabel(text: str) -> str:
@@ -36,25 +69,27 @@ def mlabel(text: str) -> str:
 
 
 class Paths:
-    """Every file path in one place so links and file names never disagree."""
+    """Every file path in one place so links and file names never disagree. Paths hold numbers only (A6/,
+    A6-N3.md, L20.md): renaming an agent or a step keeps every exported path and every link to it; the names
+    live in the titles."""
 
     def __init__(self, doc: dict):
         self.doc = doc
 
     def agent_dir(self, a: dict) -> str:
-        return f"{a['id']}_{slug(a.get('name', ''))}"
+        return a["id"]
 
     def agent(self, a: dict) -> str:
         return f"{self.agent_dir(a)}/README.md"
 
     def step(self, a: dict, s: dict) -> str:
-        return f"{self.agent_dir(a)}/steps/{full(a, s['id'])}_{slug(s.get('name', ''))}.md"
+        return f"{self.agent_dir(a)}/steps/{full(a, s['id'])}.md"
 
     def edge(self, a: dict, e: dict) -> str:
-        return f"{self.agent_dir(a)}/edges/{full(a, e['id'])}_{slug(edge_name(a, e))}.md"
+        return f"{self.agent_dir(a)}/edges/{full(a, e['id'])}.md"
 
     def link(self, link: dict) -> str:
-        return f"edges/{link['id']}_{slug(link_name(self.doc, link))}.md"
+        return f"edges/{link['id']}.md"
 
 
 def path_for(doc: dict, target: str) -> str:
@@ -66,6 +101,8 @@ def path_for(doc: dict, target: str) -> str:
         return "GLOSSARY.md"
     if link := find(doc.get("links", []), target):
         return p.link(link)
+    if target.startswith("L"):
+        return ""
     aid, _, rest = target.partition("-")
     a = find(doc.get("agents", []), aid)
     if not a:
@@ -83,39 +120,66 @@ def rel(src: str, dst: str) -> str:
     return posixpath.relpath(dst, posixpath.dirname(src) or ".")
 
 
-def md_link(text: str, src: str, dst: str) -> str:
-    text = re.sub(r"\s+", " ", str(text)).replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
-    return f"[{text}]({rel(src, dst)})"
+def md_link(text: str, src: str, dst: str, frag: str = "") -> Md:
+    text = re.sub(r"\s+", " ", str(text)).replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]").replace("<", "&lt;")
+    return Md(f"[{text}]({rel(src, dst)}{'#' + frag if frag else ''})")
+
+
+def data_link(name: str, src: str) -> Md:
+    return md_link(name, src, "GLOSSARY.md", anchor(name))
 
 
 def section(out: list[str], title: str, body: list[str]) -> None:
-    out += ["", f"## {title}"] + body
+    """A titled part; skipped when it has nothing to say."""
+    if any(str(x).strip() for x in body):
+        out += ["", f"## {title}"] + body
 
 
-def render(doc: dict, changelog: list[dict], date: str, polished: bool) -> dict[str, str]:
+def inner_edge(doc: dict, target: str) -> dict | None:
+    """The inner edge a target like A1-L2 names, or None."""
+    aid, _, rest = str(target).partition("-")
+    a = find(doc.get("agents", []), aid)
+    return find(a.get("edges", []), rest) if a and rest.startswith("L") else None
+
+
+def render(doc: dict, changelog: list[dict], date: str, polished: bool, draft_errors: int = 0) -> dict[str, str]:
+    """`draft_errors` > 0 marks the set as a draft exported with that many check errors."""
     p = Paths(doc)
     agents = by_id(doc.get("agents", []))
     links = by_id(doc.get("links", []))
-    files = {"README.md": _project(doc, p, agents, links, date, polished),
+    files = {"README.md": _project(doc, p, agents, links, date, polished, draft_errors),
              "GLOSSARY.md": _glossary(doc), "CHANGELOG.md": _changelog(changelog),
              "IMPLEMENTATION.md": _implementation(doc, p, agents, links)}
     for link in links:
-        files[p.link(link)] = _link(doc, p, link, links)
+        if has_file(link):
+            files[p.link(link)] = _link(doc, p, link, links)
     for a in agents:
         files[p.agent(a)] = _agent(doc, p, a, links)
         for s in by_id(a.get("steps", [])):
             files[p.step(a, s)] = _step(doc, p, a, s)
         for e in by_id(a.get("edges", [])):
-            files[p.edge(a, e)] = _edge(p, a, e)
+            if has_file(e):
+                files[p.edge(a, e)] = _edge(p, a, e)
     files = {k: v.rstrip("\n") + "\n" for k, v in sorted(files.items())}
-    design = {"format": FORMAT, "tool": "clonamic-create-agent", "exported": date,
+    design = {"format": FORMAT, "tool": "clonamic-create-agent", "version": VERSION, "exported": date,
               "files": sorted(files), "doc": doc}
     files["design.json"] = json.dumps(design, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
     return files
 
 
-def _names(names: list[str], src: str) -> str:
-    return ", ".join(md_link(n, src, "GLOSSARY.md") for n in names if n)
+def _names(names: list[str], src: str) -> Md:
+    return Md(", ".join(data_link(n, src) for n in names if n))
+
+
+def link_ref(p, doc, x: dict, src: str) -> str:
+    """A top-level link as a link to its file, or as plain text when it has none."""
+    text = f"{x['id']} {link_name(doc, x)}"
+    return md_link(text, src, p.link(x)) if has_file(x) else text
+
+
+def edge_ref(p, a: dict, e: dict, src: str) -> str:
+    text = f"{full(a, e['id'])} {edge_name(a, e)}"
+    return md_link(text, src, p.edge(a, e)) if has_file(e) else text
 
 
 def _shape(doc: dict, name: str) -> str:
@@ -128,7 +192,7 @@ def _shape(doc: dict, name: str) -> str:
 
 def _io_table(doc: dict, src: str, rows: list[tuple[str, list[str]]]) -> list[str]:
     """input / output table: one row per data item with its structure."""
-    body = [[kind, md_link(n, src, "GLOSSARY.md"), _shape(doc, n)] for kind, names in rows for n in names if n]
+    body = [[kind, data_link(n, src), _shape(doc, n)] for kind, names in rows for n in names if n]
     return table(["구분", "데이터", "구조"], body)
 
 
@@ -142,28 +206,31 @@ def _cond_text(item: dict) -> str:
     return (item.get("condition", "") or item.get("name", "")).strip() if item.get("kind") == "cond" else "항상"
 
 
-def _project(doc, p, agents, links, date, polished) -> str:
+def _project(doc, p, agents, links, date, polished, draft_errors=0) -> str:
     src = "README.md"
     head = f"> {WARNING} 내보낸 날짜 {date}" + ("" if polished else " · 다듬기 미적용")
-    out = [f"# {doc.get('name', '')}", head, "", doc.get("summary", ""), "",
-           f"구현은 {md_link('구현 순서', src, 'IMPLEMENTATION.md')}를 따라 데이터 구조 → 도구 → 단계 순서로 한다."]
-    need = [f"- 요구사항: {doc.get('want', '').strip()}"]
+    if draft_errors:
+        head += f" · 초안 · 검사 오류 {draft_errors}개"
+    out = [f"# {para(doc.get('name', ''))}", head, "", para(doc.get("summary", "")), "",
+           f"처음 읽는다면 이 문서 → {md_link('데이터 사전', src, 'GLOSSARY.md')} → {md_link('구현 순서', src, 'IMPLEMENTATION.md')} → "
+           "에이전트 문서(A1부터) 순서로 본다. 구현은 데이터 구조 → 도구 → 단계 순서로 한다."]
+    need = [f"- 요구사항: {para(doc.get('want', ''))}"]
     if doc.get("background", "").strip():
-        need.append(f"- 배경: {doc['background'].strip()}")
+        need.append(f"- 배경: {para(doc['background'])}")
     need.append("- 성공 기준:")
-    need += [f"  - {x}" for x in doc.get("success", []) if x.strip()]
+    need += [f"  - {para(x)}" for x in doc.get("success", []) if x.strip()]
     section(out, "요구사항", need)
-    rows = [["input", md_link(r.get("item", ""), src, "GLOSSARY.md") if r.get("item") else "", r.get("desc"), _shape(doc, r.get("item", ""))]
+    rows = [["input", data_link(r.get("item", ""), src) if r.get("item") else "", r.get("desc"), _shape(doc, r.get("item", ""))]
             for r in doc.get("inputs", [])]
-    rows += [["output", md_link(r.get("item", ""), src, "GLOSSARY.md") if r.get("item") else "", r.get("desc"), _shape(doc, r.get("item", ""))]
+    rows += [["output", data_link(r.get("item", ""), src) if r.get("item") else "", r.get("desc"), _shape(doc, r.get("item", ""))]
              for r in doc.get("outputs", [])]
     section(out, "input / output", table(["구분", "데이터", "설명", "구조"], rows))
     scope = []
     if doc.get("not_doing", "").strip():
-        scope.append(f"- 범위 밖: {doc['not_doing'].strip()}")
+        scope.append(f"- 범위 밖: {para(doc['not_doing'])}")
     if [x for x in doc.get("constraints", []) if x.strip()]:
         scope.append("- 제약:")
-        scope += [f"  - {x}" for x in doc["constraints"] if x.strip()]
+        scope += [f"  - {para(x)}" for x in doc["constraints"] if x.strip()]
     if scope:
         section(out, "범위와 제약", scope)
     section(out, "전체 흐름", ["```mermaid", *_agent_mermaid(doc, agents, links), "```"])
@@ -171,8 +238,8 @@ def _project(doc, p, agents, links, date, polished) -> str:
                                 [[md_link(a["id"], src, p.agent(a)), a.get("name"), a.get("role"),
                                   *(_names(x, src) for x in _agent_io(links, a["id"]))] for a in agents]))
     section(out, "연결", table(["번호", "출발 → 도착", "조건", "전달 데이터"],
-                             [[md_link(x["id"], src, p.link(x)), _link_route(doc, x), _cond_text(x), _names(x.get("passes", []), src)]
-                              for x in links]))
+                             [[md_link(x["id"], src, p.link(x)) if has_file(x) else x["id"], _link_route(doc, x), _cond_text(x),
+                               _names(x.get("passes", []), src)] for x in links]))
     users = tool_users(doc)
     section(out, "도구", table(["번호", "종류", "이름", "용도", "위치·접속", "쓰는 곳", "대안"],
                              [[t.get("id"), t.get("kind"), tool_name(doc, t), t.get("purpose"), t.get("location"),
@@ -187,7 +254,7 @@ def _project(doc, p, agents, links, date, polished) -> str:
         section(out, "설계 결정", table(["결정", "이유", "버린 대안"],
                                     [[r.get("decision"), r.get("why"), r.get("rejected")] for r in doc["decisions"]]))
     if [x for x in doc.get("open", []) if x.strip()]:
-        section(out, "미결 사항", [f"- [ ] {x}" for x in doc["open"] if x.strip()])
+        section(out, "미결 사항", [f"- [ ] {para(x)}" for x in doc["open"] if x.strip()])
     return "\n".join(out)
 
 
@@ -200,7 +267,7 @@ def _link_route(doc, link) -> str:
 
 
 def _agent_mermaid(doc, agents, links) -> list[str]:
-    out = ["flowchart TD", "  S([시작])"]
+    out = ["flowchart LR", "  S([시작])"]
     out += [f'  {a["id"]}["{mlabel(a["id"] + " " + a.get("name", ""))}"]' for a in agents]
     out.append("  E((끝))")
     ids = {START: "S", END: "E"}
@@ -211,7 +278,7 @@ def _agent_mermaid(doc, agents, links) -> list[str]:
 
 
 def _inner_mermaid(a: dict) -> list[str]:
-    out = ["flowchart TD", "  S([시작])"]
+    out = ["flowchart LR", "  S([시작])"]
     out += [f'  {s["id"]}["{mlabel(s["id"] + " " + s.get("name", ""))}"]' for s in by_id(a.get("steps", []))]
     out.append("  E((끝))")
     ids = {START: "S", END: "E"}
@@ -223,26 +290,28 @@ def _inner_mermaid(a: dict) -> list[str]:
 
 def _agent(doc, p, a, links) -> str:
     src = p.agent(a)
-    out = [f"# {a['id']} · {a.get('name', '')}", a.get("role", "")]
-    section(out, "필요한 이유", [a.get("intent", "")])
+    out = [f"# {a['id']} · {para(a.get('name', ''))}", para(a.get("role", ""))]
+    section(out, "필요한 이유", [para(a.get("intent", ""))])
     if a.get("not_doing", "").strip():
-        section(out, "범위 밖", [a["not_doing"]])
+        section(out, "범위 밖", [para(a["not_doing"])])
     got, gave = _agent_io(links, a["id"])
     section(out, "input / output", _io_table(doc, src, [("input", got), ("output", gave)]))
     incoming = [x for x in links if x.get("to") == a["id"]]
     outgoing = [x for x in links if x.get("from") == a["id"]]
     section(out, "들어오는 연결", table(["연결", "출발", "전달 데이터"],
-                                  [[md_link(f"{x['id']} {link_name(doc, x)}", src, p.link(x)), _end(doc, x.get("from", "")),
+                                  [[link_ref(p, doc, x, src), _end(doc, x.get("from", "")),
                                     _names(x.get("passes", []), src)] for x in incoming]))
     section(out, "다음 연결", table(["연결", "도착", "조건", "전달 데이터"],
-                                [[md_link(f"{x['id']} {link_name(doc, x)}", src, p.link(x)), _end(doc, x.get("to", "")),
+                                [[link_ref(p, doc, x, src), _end(doc, x.get("to", "")),
                                   _cond_text(x), _names(x.get("passes", []), src)] for x in outgoing]))
     section(out, "내부 흐름", ["```mermaid", *_inner_mermaid(a), "```"])
-    section(out, "단계", table(["번호", "이름", "유형", "요약"],
+    steps = by_id(a.get("steps", []))
+    order = flow_order([s["id"] for s in steps], [(e.get("from", ""), e.get("to", "")) for e in a.get("edges", [])])
+    section(out, "단계", table(["번호", "이름", "유형", "요약"],  # in the order the flow reaches them
                              [[md_link(full(a, s["id"]), src, p.step(a, s)), s.get("name"), s.get("type"), s.get("summary")]
-                              for s in by_id(a.get("steps", []))]))
+                              for s in (find(steps, sid) for sid in order)]))
     section(out, "연결", table(["번호", "출발 → 도착", "조건"],
-                             [[md_link(full(a, e["id"]), src, p.edge(a, e)),
+                             [[md_link(full(a, e["id"]), src, p.edge(a, e)) if has_file(e) else full(a, e["id"]),
                                f"{node_name(a, e.get('from', ''))} → {node_name(a, e.get('to', ''))}", _cond_text(e)]
                               for e in by_id(a.get("edges", []))]))
     users = tool_users(doc)
@@ -253,16 +322,16 @@ def _agent(doc, p, a, links) -> str:
                                    ", ".join(u for u in users[t["id"]] if u.startswith(f"{a['id']}-"))] for t in used]))
     _fixed(out, a)
     if a.get("paths", "").strip():
-        section(out, "정상·예외 흐름", [a["paths"]])
+        section(out, "정상·예외 흐름", [para(a["paths"])])
     if a.get("notes", "").strip():
-        section(out, "공통 제약", [a["notes"]])
+        section(out, "공통 제약", [para(a["notes"])])
     return "\n".join(out)
 
 
 def _fixed(out: list[str], obj: dict) -> None:
     for key, title in (("fixed", "지켜야 할 것"), ("discretion", "구현자가 정할 것")):
         if obj.get(key, "").strip():
-            section(out, title, [obj[key].strip()])
+            section(out, title, [para(obj[key])])
 
 
 def _node_link(p, a, ref: str, src: str) -> str:
@@ -290,38 +359,38 @@ def _tool_label(doc: dict, tid: str) -> str:
 
 def _step(doc, p, a, s) -> str:
     src = p.step(a, s)
-    out = [f"# {full(a, s['id'])} · {s.get('name', '')}",
+    out = [f"# {full(a, s['id'])} · {para(s.get('name', ''))}",
            f"`{s.get('type', '')}` · 소속 {md_link(a['id'] + ' ' + a.get('name', ''), src, p.agent(a))}",
-           s.get("summary", "")]
-    section(out, "필요한 이유", [s.get("intent", "")])
+           para(s.get("summary", ""))]
+    section(out, "필요한 이유", [para(s.get("intent", ""))])
     section(out, "input / output", _io_table(doc, src, [("input", s.get("inputs", [])), ("output", s.get("outputs", []))]))
     steps = [x for x in s.get("process", []) if str(x.get("name", "")).strip()]
     # One item per row: a head line (unit, name, input → output, tool), then the procedure lines of `does` under it.
-    rows = ["흐름: " + " → ".join(f"{i}. {x['name'].strip()}" for i, x in enumerate(steps, 1)), ""]
+    rows = []
     for i, x in enumerate(steps, 1):
         unit = f"`{x['unit']}` " if x.get("unit") else ""
-        io = f" — {x.get('input', '')} → {x.get('output', '')}" if x.get("input") or x.get("output") else ""
+        io = f" — {para(x.get('input', ''))} → {para(x.get('output', ''))}" if x.get("input") or x.get("output") else ""
         tool = f" · 도구 {_tool_label(doc, x['tool'])}" if x.get("tool") else ""
-        rows.append(f"{i}. {unit}**{x['name'].strip()}**{io}{tool}")
-        rows += [f"   - {line.strip().removeprefix('- ')}" for line in str(x.get("does", "")).splitlines() if line.strip()]
+        rows.append(f"{i}. {unit}**{para(x['name'])}**{io}{tool}")
+        rows += [f"   - {para(line.strip().removeprefix('- '))}" for line in str(x.get("does", "")).splitlines() if line.strip()]
     section(out, "과정", rows)
     if [x for x in s.get("criteria", []) if x.strip()]:
-        section(out, "판단 기준", [f"- {x}" for x in s["criteria"] if x.strip()])
+        section(out, "판단 기준", [f"- {para(x)}" for x in s["criteria"] if x.strip()])
     if s.get("prompt", "").strip():
-        section(out, "AI 지시", [s["prompt"].strip()])
+        section(out, "AI 지시", [para(s["prompt"])])
     if s.get("tools"):
         section(out, "도구", [f"- {_tool_label(doc, t)}" for t in s["tools"]])
-    section(out, "완료 기준", [f"- [ ] {x}" for x in s.get("done", []) if x.strip()])
+    section(out, "완료 기준", [f"- [ ] {para(x)}" for x in s.get("done", []) if x.strip()])
     nxt = [e for e in by_id(a.get("edges", [])) if e.get("from") == s["id"]]
     section(out, "다음 연결", table(["연결", "도착", "조건", "전달 데이터"],
-                                [[md_link(f"{full(a, e['id'])} {edge_name(a, e)}", src, p.edge(a, e)),
-                                  _node_link(p, a, e.get("to", ""), src), _cond_text(e), _names(e.get("passes", []), src)] for e in nxt]))
+                                [[edge_ref(p, a, e, src), _node_link(p, a, e.get("to", ""), src), _cond_text(e),
+                                  _names(e.get("passes", []), src)] for e in nxt]))
     for key, title in (("example", "예시"), ("on_fail", "실패 처리")):
         if s.get(key, "").strip():
-            section(out, title, [s[key].strip()])
+            section(out, title, [para(s[key])])
     _fixed(out, s)
     if s.get("cautions", "").strip():
-        section(out, "주의점", [s["cautions"].strip()])
+        section(out, "주의점", [para(s["cautions"])])
     return "\n".join(out)
 
 
@@ -336,8 +405,8 @@ def _condition(out, item, siblings, link_to, loop_target) -> None:
         rows.append(["같은 출발의 다른 연결", ", ".join(f"{link_to(x)} ({_cond_text(x)})" for x in others)])
     if rows:
         section(out, "조건", table(["항목", "내용"], rows))
-    if item.get("kind") == "cond" and item.get("intent", "").strip():
-        section(out, "필요한 이유", [item["intent"].strip()])
+    if item.get("intent", "").strip():
+        section(out, "필요한 이유", [para(item["intent"])])
 
 
 def _edge(p, a, e) -> str:
@@ -349,10 +418,10 @@ def _edge(p, a, e) -> str:
     target = find(a.get("edges", []), e.get("loop_exit", ""))
 
     def link_to(x: dict) -> str:
-        return md_link(f"{full(a, x['id'])} {edge_name(a, x)}", src, p.edge(a, x))
+        return edge_ref(p, a, x, src)
 
     _condition(out, e, siblings, link_to, link_to(target) if target else "")
-    section(out, "전달 데이터", [f"- {md_link(n, src, 'GLOSSARY.md')}" for n in e.get("passes", []) if n])
+    section(out, "전달 데이터", [f"- {data_link(n, src)}" for n in e.get("passes", []) if n])
     return "\n".join(out)
 
 
@@ -369,10 +438,10 @@ def _link(doc, p, link, links) -> str:
     target = find(links, link.get("loop_exit", ""))
 
     def link_to(x: dict) -> str:
-        return md_link(f"{x['id']} {link_name(doc, x)}", src, p.link(x))
+        return link_ref(p, doc, x, src)
 
     _condition(out, link, siblings, link_to, link_to(target) if target else "")
-    section(out, "전달 데이터", [f"- {md_link(n, src, 'GLOSSARY.md')}" for n in link.get("passes", []) if n])
+    section(out, "전달 데이터", [f"- {data_link(n, src)}" for n in link.get("passes", []) if n])
     return "\n".join(out)
 
 
@@ -390,7 +459,7 @@ def _glossary(doc) -> str:
     out += table(["이름", "뜻", "처음 생기는 곳", "쓰이는 곳"], rows)
     for g in doc.get("glossary", []):
         fields = [f for f in g.get("fields", []) if str(f.get("name", "")).strip()]
-        section(out, g.get("name", ""), [g.get("meaning", ""), *([""] + [g["contents"].strip()] if g.get("contents", "").strip() else []), "",
+        section(out, g.get("name", ""), [para(g.get("meaning", "")), *([""] + [para(g["contents"])] if g.get("contents", "").strip() else []), "",
                                          *table(["필드", "형식", "필수", "설명", "예"],
                                                 [[f.get("name"), f.get("type"), "예" if f.get("required", True) else "아니오",
                                                   f.get("desc"), f.get("example")] for f in fields])])
@@ -415,26 +484,28 @@ def _implementation(doc, p, agents, links) -> str:
     """One page that tells an implementer where to start and in which order to build and test."""
     src = "IMPLEMENTATION.md"
     out = ["# 구현 순서", "", "위에서 아래로 만든다. 단계마다 예시를 첫 테스트로 쓰고, 완료 기준을 통과하면 다음으로 간다."]
+    n = iter(range(1, 10))
+    if [x for x in doc.get("open", []) if x.strip()]:  # what must be settled comes before any building
+        section(out, f"{next(n)}. 구현 전에 정할 것", [f"- [ ] {para(x)}" for x in doc["open"] if x.strip()])
     data = [g for g in doc.get("glossary", []) if g.get("name")]
-    section(out, "1. 데이터 구조", table(["데이터", "구조"], [[md_link(g["name"], src, "GLOSSARY.md"), _shape(doc, g["name"])] for g in data]))
-    section(out, "2. 도구 준비", table(["번호", "종류", "이름", "위치·접속"],
+    section(out, f"{next(n)}. 데이터 구조", table(["데이터", "구조"], [[data_link(g["name"], src), _shape(doc, g["name"])] for g in data]))
+    section(out, f"{next(n)}. 도구 준비", table(["번호", "종류", "이름", "위치·접속"],
                                     [[t.get("id"), t.get("kind"), tool_name(doc, t), t.get("location")] for t in doc.get("tools", [])]))
     order = flow_order([a["id"] for a in agents], [(x.get("from", ""), x.get("to", "")) for x in links])
-    body = []
-    for n, aid in enumerate(order, 1):
+    body, part = [], next(n)
+    for k, aid in enumerate(order, 1):
         a = find(agents, aid)
         steps = flow_order([s["id"] for s in a.get("steps", [])], [(e.get("from", ""), e.get("to", "")) for e in a.get("edges", [])])
-        body += ["", f"### 3.{n} {md_link(a['id'] + ' ' + a.get('name', ''), src, p.agent(a))}", ""]
+        body += ["", f"### {part}.{k} {md_link(a['id'] + ' ' + a.get('name', ''), src, p.agent(a))}", ""]
         body += table(["순서", "단계", "유형", "input → output", "첫 테스트(예시)", "완료 기준"],
                       [[i, md_link(f"{full(a, sid)} {s.get('name', '')}", src, p.step(a, s)), s.get("type"),
                         f"{', '.join(s.get('inputs', []))} → {', '.join(s.get('outputs', []))}", s.get("example"),
                         "; ".join(x for x in s.get("done", []) if x.strip())]
                        for i, sid in enumerate(steps, 1) for s in [find(a.get("steps", []), sid)]])
-    section(out, "3. 에이전트와 단계", body[1:])
-    section(out, "4. 전체 검증", table(["시나리오", "input", "경로", "기대 결과"],
-                                   [[r.get("name"), r.get("input"), r.get("path"), r.get("expected")] for r in doc.get("scenarios", [])]))
-    if [x for x in doc.get("open", []) if x.strip()]:
-        section(out, "5. 구현 전에 정할 것", [f"- [ ] {x}" for x in doc["open"] if x.strip()])
+    section(out, f"{part}. 에이전트와 단계", body[1:])
+    if doc.get("scenarios"):
+        section(out, f"{next(n)}. 전체 검증", [f"{md_link('README의 검증 시나리오', src, 'README.md', anchor('검증 시나리오'))}를 "
+                                             "모두 통과하면 끝난다. 시나리오마다 input을 넣고 경로와 기대 결과를 확인한다."])
     return "\n".join(out)
 
 

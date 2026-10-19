@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 FORMAT = 1
+VERSION = "0.4.0"  # the plugin version; server health and design.json report it
 STEP_TYPES = ["판단", "처리", "외부 연동", "사람 확인"]
 EDGE_KINDS = {"always": "항상", "cond": "조건"}
 JUDGES = ["정해진 규칙", "AI 판단", "사람"]
@@ -115,6 +116,30 @@ def filled(value) -> bool:
 
 TEXT_KINDS = {"line", "text", "select", "ref", "color"}
 ID = re.compile(r"^[A-Z]\d+$")
+COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+NAME_MAX = 80
+
+
+def clean_name(text, default: str = "") -> str:
+    """A project name: no control characters, trimmed, at most NAME_MAX characters."""
+    text = re.sub(r"[\x00-\x1f\x7f]+", " ", str(text or "")).strip()[:NAME_MAX].strip()
+    return text or default
+
+
+def basic_error(doc) -> str:
+    """The minimum shape migrate() can read; shape_error() checks the rest after migrating."""
+    if not isinstance(doc, dict):
+        return "문서가 JSON 객체가 아닙니다."
+    for key in ("agents", "links", "tools", "glossary"):
+        v = doc.get(key, [])
+        if not (isinstance(v, list) and all(isinstance(x, dict) for x in v)):
+            return f"{key}는 객체 목록이어야 합니다."
+    for a in doc.get("agents", []):
+        for key in ("steps", "edges"):
+            v = a.get(key, [])
+            if not (isinstance(v, list) and all(isinstance(x, dict) for x in v)):
+                return f"에이전트 {a.get('id', '')}의 {key}는 객체 목록이어야 합니다."
+    return ""
 
 
 def shape_error(doc) -> str:
@@ -132,6 +157,8 @@ def shape_error(doc) -> str:
             v = obj[key]
             if k in TEXT_KINDS and not isinstance(v, str):
                 return f"{where}의 {key}는 문자열이어야 합니다."
+            if k == "color" and v and not COLOR.match(v):
+                return f"{where}의 색은 #rrggbb 형식이어야 합니다."
             if k in ("lines", "names", "toolrefs") and not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
                 return f"{where}의 {key}는 문자열 목록이어야 합니다."
             if k in ("table", "tools", "process", "glossary") and not (isinstance(v, list) and all(isinstance(x, dict) for x in v)):
@@ -252,6 +279,9 @@ def migrate(doc: dict) -> dict:
                     refs.append(tid)
             step["tools"] = refs
     _drop_exits(doc)
+    for agent in doc.get("agents", []):
+        if isinstance(agent.get("color"), str) and agent["color"] and not COLOR.match(agent["color"]):
+            agent["color"] = ""  # an unreadable color falls back to the palette, as the editor already draws it
     for g in doc.get("glossary", []):
         if isinstance(g, dict):
             g.setdefault("fields", [])

@@ -1,4 +1,5 @@
-"""Pre-export checks. Each issue: {"code", "target", "message"}; an empty list means the design may be exported."""
+"""Pre-export checks. Each issue: {"code", "target", "message", "level"}. Errors block export (a draft export still
+works); warnings only point at likely mistakes."""
 
 from __future__ import annotations
 
@@ -12,8 +13,8 @@ from graph import END, START, back_pairs, by_id, full, reachable
 def run(doc: dict) -> list[dict]:
     issues: list[dict] = []
 
-    def add(code: str, target: str, message: str) -> None:
-        issues.append({"code": code, "target": target, "message": message})
+    def add(code: str, target: str, message: str, level: str = "error") -> None:
+        issues.append({"code": code, "target": target, "message": message, "level": level})
 
     agents = by_id(doc.get("agents", []))
     links = by_id(doc.get("links", []))
@@ -28,7 +29,13 @@ def run(doc: dict) -> list[dict]:
     _process_chain(doc, agents, add)
     _step_kinds(doc, agents, add)
     _scenarios(doc, agents, links, add)
+    _names(agents, add)
+    _stray_ids(doc, agents, links, add)
     return issues
+
+
+def errors(issues: list[dict]) -> list[dict]:
+    return [i for i in issues if i.get("level", "error") == "error"]
 
 
 def _required(doc, agents, links, add) -> None:
@@ -53,6 +60,9 @@ def _required(doc, agents, links, add) -> None:
 
 def _references(agents, links, add) -> None:
     agent_ids = {a["id"] for a in agents}
+    for item, target in [(x, x["id"]) for x in links] + [(e, full(a, e["id"])) for a in agents for e in a.get("edges", [])]:
+        if item.get("from") and item.get("from") == item.get("to"):
+            add("reference", target, f"{target}는 자기 자신으로 가는 연결입니다. 다시 시도는 실패 처리에 쓰거나 다른 단계를 거치게 하세요.")
     for link in links:
         if link.get("from") not in agent_ids | {START}:
             add("reference", link["id"], f"{link['id']}의 출발 에이전트가 없습니다.")
@@ -189,6 +199,14 @@ def _glossary(doc, agents, links, add) -> None:
             add("glossary", "project", f"데이터 ‘{name}’이(가) 데이터 사전에 없습니다.")
         elif not any(str(f.get("name", "")).strip() and str(f.get("type", "")).strip() for f in g.get("fields", [])):
             add("glossary", "project", f"데이터 ‘{name}’의 구조(필드 이름과 형식)가 없습니다.")
+    for g in doc.get("glossary", []):
+        name = g.get("name", "")
+        if name and name not in names:
+            add("glossary", "project", f"데이터 사전의 ‘{name}’을(를) 쓰는 곳이 없습니다. 필요 없으면 지우세요.", "warning")
+        for f in g.get("fields", []):
+            if str(f.get("type", "")).strip() in ("목록", "객체") and not str(f.get("desc", "")).strip():
+                add("glossary", "project", f"데이터 ‘{name}’의 필드 ‘{f.get('name', '')}’는 {f['type'].strip()}인데 "
+                    "안에 무엇이 드는지 설명이 없습니다.", "warning")
     # ponytail: only catches names that differ by spacing or case; meaning-level look-alikes are the reviewer's job
     seen: dict[str, str] = {}
     for name in sorted(set(entries) | names):
@@ -268,3 +286,53 @@ def _scenarios(doc, agents, links, add) -> None:
         for ref in re.findall(r"\b[AL]\d+(?:-[NL]\d+)?\b", str(r.get("path", ""))):
             if ref not in ids:
                 add("scenario", "project", f"검증 시나리오 ‘{r.get('name', '')}’의 경로에 없는 번호 {ref}가 있습니다.")
+
+
+def _names(agents, add) -> None:
+    """Two cards with the same name read the same on the map and in the 다음 rows."""
+    def same(items, where, target) -> None:
+        seen: dict[str, str] = {}
+        for x in items:
+            n = str(x.get("name", "")).strip()
+            if n and n in seen:
+                add("name", target(x), f"{where}에 이름이 ‘{n}’인 것이 둘 있습니다({seen[n]}, {x['id']}). 구분되게 바꾸세요.", "warning")
+            seen.setdefault(n, x["id"])
+
+    same(agents, "에이전트", lambda x: x["id"])
+    for a in agents:
+        same(a.get("steps", []), f"{a['id']} 안의 단계", lambda x, a=a: full(a, x["id"]))
+
+
+ID_LIKE = re.compile(r"(?<![A-Za-z0-9_-])([A-Z][A-Za-z0-9]*-[NL]\d+)(?![A-Za-z0-9_-])")  # Korean particles may follow
+SKIP_KEYS = {"id", "from", "to", "loop_exit", "ref", "layout", "format"}
+
+
+def _stray_ids(doc, agents, links, add) -> None:
+    """Numbers like A6-N3 written in the text must exist; a private alias (S1-N2) misleads the reader."""
+    ids = {full(a, x["id"]) for a in agents for x in a.get("steps", []) + a.get("edges", [])}
+    found: dict[str, str] = {}
+
+    def walk(v, where: str) -> None:
+        if isinstance(v, str):
+            for ref in ID_LIKE.findall(v):
+                if ref not in ids:
+                    found.setdefault(ref, where)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x, where)
+        elif isinstance(v, dict):
+            for k, x in v.items():
+                if k not in SKIP_KEYS:
+                    walk(x, where)
+
+    for k, v in doc.items():
+        if k not in SKIP_KEYS | {"agents", "links"}:
+            walk(v, "project")
+    for link in links:
+        walk(link, link["id"])
+    for a in agents:
+        walk({k: v for k, v in a.items() if k not in ("steps", "edges")}, a["id"])
+        for x in a.get("steps", []) + a.get("edges", []):
+            walk(x, full(a, x["id"]))
+    for ref, where in sorted(found.items()):
+        add("reference", where, f"{where}의 글에 있는 번호 {ref}가 이 설계에 없습니다. 실제 번호로 바꾸세요.", "warning")

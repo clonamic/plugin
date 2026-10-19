@@ -8,7 +8,10 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import select
+import sys
+import traceback
 import socket
 import threading
 import time
@@ -22,9 +25,9 @@ import exporter
 import patch
 import render
 import schema
-from store import Conflict, Store, data_dir
+from store import Conflict, Store, code_hash, data_dir
 
-VERSION = "0.2.0"
+VERSION = schema.VERSION
 APP = "clonamic-create-agent"
 WEB = Path(__file__).resolve().parent.parent / "assets" / "web"
 MAX_BODY = 5_000_000
@@ -33,6 +36,34 @@ TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".j
 
 def today() -> str:
     return dt.date.today().isoformat()
+
+
+class BadRequest(ValueError):
+    """A request the caller can fix; the message is shown as is."""
+
+
+def num(text, what: str) -> int:
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        raise BadRequest(f"{what} 번호는 숫자여야 합니다.") from None
+
+
+def wait_seconds(text) -> float:
+    """1~600 seconds; anything unreadable (nan, inf, words) waits the usual 55."""
+    try:
+        t = float(text)
+    except (TypeError, ValueError):
+        t = 55.0
+    return max(1.0, min(t if math.isfinite(t) else 55.0, 600.0))
+
+
+def without_layout(doc: dict) -> str:
+    return json.dumps({k: v for k, v in doc.items() if k != "layout"}, sort_keys=True, ensure_ascii=False)
+
+
+def default_path(proj: dict) -> str:
+    return f"~/Documents/clonamic-agents/{render.slug(proj['doc'].get('name', ''))}-{proj['id']}"
 
 
 class App:
@@ -46,6 +77,8 @@ class App:
         self.closing = False
         self.tokens: dict[int, str] = {}
         self.seen: dict[int, float] = {}
+        self.waiting: dict[int, int] = {}  # project -> waits in flight
+        self.code = code_hash()
 
     def emit(self, kind: str, pid: int) -> None:
         with self.cond:
@@ -80,22 +113,28 @@ class App:
         """Next unhandled message. Ends only with a message, a timeout (call again), closed, or replaced."""
         with self.cond:
             self.tokens[pid] = token
+            self.waiting[pid] = self.waiting.get(pid, 0) + 1
         deadline = time.time() + timeout
-        while True:
+        try:
+            while True:
+                with self.cond:
+                    self.seen[pid] = time.time()
+                    if self.closing:
+                        return {"status": "closed"}
+                    if self.tokens.get(pid) != token:
+                        return {"status": "replaced"}
+                    msg = self.store.take(pid)  # under the same lock as the token check, so a replaced waiter takes nothing
+                if msg:
+                    return {"status": "message", "message": msg}
+                left = deadline - time.time()
+                if left <= 0:
+                    return {"status": "timeout"}
+                with self.cond:
+                    self.cond.wait(min(left, 1.0))
+        finally:
             with self.cond:
+                self.waiting[pid] -= 1
                 self.seen[pid] = time.time()
-                if self.closing:
-                    return {"status": "closed"}
-                if self.tokens.get(pid) != token:
-                    return {"status": "replaced"}
-                msg = self.store.take(pid)  # under the same lock as the token check, so a replaced waiter takes nothing
-            if msg:
-                return {"status": "message", "message": msg}
-            left = deadline - time.time()
-            if left <= 0:
-                return {"status": "timeout"}
-            with self.cond:
-                self.cond.wait(min(left, 1.0))
 
 
 def make_handler(app: App):
@@ -106,6 +145,13 @@ def make_handler(app: App):
             pass
 
         # helpers
+        def fail(self, status: int, message: str) -> None:
+            """An error answer; a client that already went away gets nothing."""
+            try:
+                self.send(status, {"error": message})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
         def send(self, status: int, data, kind: str = "application/json") -> None:
             body = data if isinstance(data, bytes) else json.dumps(data, ensure_ascii=False).encode()
             self.send_response(status)
@@ -143,10 +189,15 @@ def make_handler(app: App):
         def do_GET(self) -> None:
             try:
                 self.get()
-            except (ValueError, KeyError, TypeError, AttributeError) as exc:
-                self.send(400, {"error": f"잘못된 요청입니다: {exc}"})
-            except Exception as exc:  # noqa: BLE001 - the CLI expects one JSON object, never a dropped connection
-                self.send(500, {"error": f"편집기 서버 오류: {exc}"})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except BadRequest as exc:
+                self.fail(400, str(exc))
+            except (ValueError, KeyError, TypeError, AttributeError):
+                self.fail(400, "잘못된 요청입니다.")
+            except Exception:  # noqa: BLE001 - the CLI expects one JSON object, never a dropped connection
+                traceback.print_exc(file=sys.stderr)  # server.log keeps the details; the answer does not
+                self.fail(500, "편집기 서버 오류가 났습니다. server.log를 확인하세요.")
 
         def get(self) -> None:
             if not self.allowed():
@@ -158,7 +209,7 @@ def make_handler(app: App):
                 return self.static(url.path)
             route = parts[1:]
             if route == ["health"]:
-                return self.send(200, {"app": APP, "version": VERSION, "data_dir": str(data_dir())})
+                return self.send(200, {"app": APP, "version": VERSION, "data_dir": str(data_dir()), "code": app.code})
             if route == ["schema"]:
                 return self.send(200, schema.SCHEMA)
             if route == ["events"]:
@@ -166,30 +217,34 @@ def make_handler(app: App):
             if route == ["wait"]:  # takes a message, so like a write it needs the CLI's header
                 if self.headers.get("X-Clonamic") != "1":
                     return self.deny()
-                pid = int(q.get("project", 0))
+                pid = num(q.get("project", 0), "프로젝트")
                 if not self.project(pid):
                     return None
-                return self.send(200, app.wait(pid, q.get("token", ""), min(float(q.get("timeout", 55)), 600)))
+                return self.send(200, app.wait(pid, q.get("token", ""), wait_seconds(q.get("timeout", 55))))
             if route == ["projects"]:
                 return self.send(200, app.store.projects())
             if len(route) >= 2 and route[0] == "projects":
-                pid = int(route[1])
+                pid = num(route[1], "프로젝트")
                 proj = self.project(pid)
                 if not proj:
                     return None
                 rest = route[2:]
                 if not rest:
                     proj["ai_seen"] = round(time.time() - app.seen[pid], 1) if pid in app.seen else None
-                    proj["default_path"] = "~/Documents/clonamic-agents/" + render.slug(proj["doc"].get("name", ""))
+                    proj["ai_waiting"] = app.waiting.get(pid, 0) > 0
+                    proj["default_path"] = default_path(proj)
                     return self.send(200, proj)
                 if rest == ["messages"]:
-                    return self.send(200, app.store.messages(pid, int(q.get("after", 0))))
+                    return self.send(200, app.store.messages(pid, num(q.get("after", 0), "메시지")))
                 if rest == ["check"]:
                     return self.send(200, {"issues": checks.run(proj["doc"])})
                 if rest == ["preview"]:
                     files = render.render(proj["doc"], app.store.changelog(pid), today(), proj["polished"])
                     path = render.path_for(proj["doc"], q.get("target", "project"))
-                    return self.send(200, {"path": path, "text": files.get(path, "")})
+                    text = files.get(path, "")
+                    if path and not text and render.inner_edge(proj["doc"], q.get("target", "")):
+                        text = "이 연결은 조건이나 반복이 없어 따로 파일을 만들지 않습니다. 출발 단계 문서의 ‘다음 연결’ 표에 한 줄로 들어갑니다."
+                    return self.send(200, {"path": path, "text": text})
                 if rest == ["design"]:
                     files = render.render(proj["doc"], app.store.changelog(pid), today(), proj["polished"])
                     return self.send(200, files["design.json"].encode(), "application/json")
@@ -216,32 +271,35 @@ def make_handler(app: App):
             route = [p for p in urlparse(self.path).path.split("/") if p][1:]
             try:
                 self.route(method, route, data)
-            except exporter.ExportError as exc:
-                self.send(400, {"error": str(exc)})
-            except (ValueError, KeyError, TypeError, AttributeError) as exc:
-                self.send(400, {"error": f"잘못된 요청입니다: {exc}"})
-            except Exception as exc:  # noqa: BLE001
-                self.send(500, {"error": f"편집기 서버 오류: {exc}"})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except (exporter.ExportError, BadRequest) as exc:
+                self.fail(400, str(exc))
+            except (ValueError, KeyError, TypeError, AttributeError):
+                self.fail(400, "잘못된 요청입니다. 보낸 값의 형식을 확인하세요.")
+            except Exception:  # noqa: BLE001
+                traceback.print_exc(file=sys.stderr)
+                self.fail(500, "편집기 서버 오류가 났습니다. server.log를 확인하세요.")
 
         def route(self, method: str, route: list[str], data: dict) -> None:
             store = app.store
             if method == "POST" and route == ["projects"]:
-                name = (data.get("name") or "새 프로젝트").strip()
-                pid = store.create(name)
+                pid = store.create(schema.clean_name(data.get("name"), "새 프로젝트"))
                 app.emit("projects", pid)
                 return self.send(201, {"id": pid})
             if method == "POST" and route == ["projects", "import"]:
                 doc = exporter.load_design(data.get("text", ""))
-                if err := schema.shape_error(schema.migrate(doc)):
+                if err := schema.basic_error(doc) or schema.shape_error(schema.migrate(doc)):
                     return self.send(400, {"error": err})
-                pid = store.create(doc.get("name", ""), doc)
+                doc["name"] = schema.clean_name(doc.get("name"), "가져온 프로젝트")
+                pid = store.create(doc["name"], doc)
                 app.emit("projects", pid)
                 return self.send(201, {"id": pid})
             if len(route) == 3 and route[0] == "cards" and method == "POST" and route[2] in ("apply", "dismiss"):
-                return self.card(int(route[1]), route[2], data.get("keys"))
+                return self.card(num(route[1], "제안"), route[2], data.get("keys"))
             if len(route) < 2 or route[0] != "projects":
                 return self.send(404, {"error": "not found"})
-            pid = int(route[1])
+            pid = num(route[1], "프로젝트")
             proj = self.project(pid)
             if not proj:
                 return None
@@ -251,18 +309,7 @@ def make_handler(app: App):
                 app.emit("projects", pid)
                 return self.send(200, {"ok": True})
             if method == "PUT" and not rest:
-                if isinstance(data.get("doc"), dict):
-                    schema.migrate(data["doc"])
-                if err := schema.shape_error(data.get("doc")):
-                    return self.send(400, {"error": err})
-                try:
-                    version = store.save(pid, data["doc"], int(data["version"]))
-                except Conflict as exc:
-                    return self.send(409, {"error": "다른 곳에서 먼저 바뀌었습니다.", "version": exc.args[0]})
-                if data.get("note"):
-                    store.log(pid, today(), data["note"], data.get("why", ""), data.get("affected", ""))
-                app.emit("project", pid)
-                return self.send(200, {"version": version})
+                return self.put(pid, proj, data)
             if method == "POST" and rest == ["messages"]:
                 role = data.get("role", "user")
                 if role not in ("user", "ai"):
@@ -272,15 +319,14 @@ def make_handler(app: App):
                 app.emit("message", pid)
                 return self.send(201, {"id": mid})
             if method == "POST" and rest == ["cards"]:
-                if isinstance(data.get("doc"), dict):
-                    schema.migrate(data["doc"])
-                if err := schema.shape_error(data.get("doc")):
+                if err := schema.basic_error(data.get("doc")) or schema.shape_error(schema.migrate(data["doc"])):
                     return self.send(400, {"error": "제안의 doc: " + err})
-                base = store.at_version(pid, int(data["base_version"]))
+                base = store.at_version(pid, num(data.get("base_version"), "기준 버전"))
                 if base is None:
                     return self.send(409, {"error": "제안의 base_version이 너무 오래됐습니다. get으로 다시 받아 제안하세요.", "version": proj["version"]})
                 card = {k: data.get(k) for k in ("title", "criterion", "reason", "targets", "changes", "effect", "rejected")}
-                card |= {"kind": data.get("kind", "review"), "base_version": int(data["base_version"]), "patch": patch.diff(base, data["doc"])}
+                card |= {"kind": data.get("kind", "review"), "base_version": int(data["base_version"]), "patch": patch.diff(base, data["doc"]),
+                         "checked": data.get("checked") is True}
                 mid = store.add_message(pid, "ai", "card", card, "pending")
                 app.emit("message", pid)
                 return self.send(201, {"id": mid})
@@ -289,18 +335,22 @@ def make_handler(app: App):
                 app.emit("message", pid)
                 return self.send(201, {"id": mid})
             if method == "POST" and rest == ["export"]:
-                issues = checks.run(proj["doc"])
-                if issues:
-                    return self.send(422, {"error": "검사를 통과하지 못했습니다.", "issues": issues})
+                # The path is checked first, so a bad path shows up even while the design still has issues.
                 path = (data.get("path") or proj["export_path"] or "").strip()
                 if not path:
                     return self.send(400, {"error": "저장 경로가 필요합니다."})
-                files = render.render(proj["doc"], store.changelog(pid), today(), proj["polished"])
+                issues = checks.run(proj["doc"])
+                errors = checks.errors(issues)
+                draft = bool(errors) and data.get("draft") is True  # a draft says so at the top of README
+                files = render.render(proj["doc"], store.changelog(pid), today(), proj["polished"], len(errors) if draft else 0)
+                info = exporter.plan(path, files) | {"issues": issues, "errors": len(errors)}
                 if data.get("dry"):
-                    return self.send(200, exporter.plan(path, files))
+                    return self.send(200, info)
+                if errors and not draft:
+                    return self.send(422, {"error": f"검사 오류 {len(errors)}개가 있습니다. 고치거나 초안으로 내보내세요.", "issues": issues})
                 result = exporter.write(path, files)
                 store.set_export_path(pid, path)
-                return self.send(200, result | {"polished": proj["polished"]})
+                return self.send(200, result | {"polished": proj["polished"], "draft": draft})
             return self.send(404, {"error": "not found"})
 
         def card(self, mid: int, action: str, keys: list | None = None) -> None:
@@ -337,12 +387,12 @@ def make_handler(app: App):
                                        + ". 그 항목을 빼고 적용하거나 다시 제안을 요청하세요.", "conflicts": conflicts})
             if err := schema.shape_error(doc):
                 return self.send(409, {"error": "고른 항목만으로는 문서가 맞지 않습니다: " + err})
-            polish = card.get("kind") == "polish"
+            polish = card.get("kind") == "polish"  # only a polish checked by clonamic-korean counts as done
             if not polish:
                 doc.setdefault("decisions", []).append(
                     {"decision": card.get("title") or "", "why": card.get("reason") or "", "rejected": card.get("rejected") or ""})
             try:
-                version = store.save(pid, doc, proj["version"], polished=polish and len(chosen) == len(items))
+                version = store.save(pid, doc, proj["version"], polished=polish and card.get("checked") is True and len(chosen) == len(items))
             except Conflict:
                 return self.send(409, {"error": "설계가 바뀌어 이 제안을 적용할 수 없습니다. 다시 제안을 요청하세요."})
             store.log(pid, today(), card.get("title") or "", card.get("reason") or "",
@@ -351,6 +401,38 @@ def make_handler(app: App):
             app.emit("project", pid)
             app.emit("message", pid)
             return self.send(200, {"version": version})
+
+        def put(self, pid: int, proj: dict, data: dict) -> None:
+            """Save. A save made from an older version is merged onto the current one when the two touched
+            different things (patch units); otherwise 409 lists what both changed."""
+            store = app.store
+            doc = data.get("doc")
+            if err := schema.basic_error(doc) or schema.shape_error(schema.migrate(doc)):
+                return self.send(400, {"error": err})
+            version, merged = num(data.get("version"), "버전"), False
+            before = proj["doc"]
+            keep = proj["polished"] and proj["version"] == version and without_layout(before) == without_layout(doc)
+            try:
+                new = store.save(pid, doc, version, polished=keep)  # moving cards keeps a polish
+            except Conflict as exc:
+                base = store.at_version(pid, version)
+                if base is None:
+                    return self.send(409, {"error": "다른 곳에서 먼저 바뀌었습니다.", "version": exc.args[0], "conflicts": []})
+                cur = store.get(pid)
+                doc, conflicts = patch.merge(base, doc, cur["doc"])
+                if conflicts or schema.shape_error(doc):
+                    return self.send(409, {"error": "다른 곳에서 같은 곳을 먼저 고쳤습니다.", "version": cur["version"], "conflicts": conflicts})
+                before = cur["doc"]
+                try:
+                    new = store.save(pid, doc, cur["version"])
+                except Conflict as again:
+                    return self.send(409, {"error": "다른 곳에서 먼저 바뀌었습니다.", "version": again.args[0], "conflicts": []})
+                merged = True
+            if data.get("note"):
+                affected = data.get("affected") or ", ".join(dict.fromkeys(it["target"] for it in patch.diff(before, doc)))
+                store.log(pid, today(), data["note"], data.get("why", ""), affected)
+            app.emit("project", pid)
+            return self.send(200, {"version": new, "merged": merged, "polished": keep and not merged})
 
         def static(self, path: str) -> None:
             rel = "index.html" if path in ("", "/") else path.lstrip("/")

@@ -2,6 +2,8 @@
 
 `cagent.py get` returns `{"doc": ..., "version": N, ...}`. Edit a copy of `doc` and send it back whole with `put --version N`. Keep every key; unknown keys are kept as-is. Never touch `layout` (canvas positions; the editor fills it).
 
+If the document changed after your `get`, `put` merges your changes onto the current version when the two touched different units (a project field, a tool, a data entry, a link, an agent's own fields, a step, an inner edge) and answers `merged: true`. When both changed the same unit differently it answers 409 with `conflicts` (their labels): `get` again and redo your change on the new document.
+
 ```jsonc
 {
   "format": 1,
@@ -48,7 +50,7 @@
 
 Inside an agent the flow runs from `start` to `end`; an agent finishes at `end` and its outgoing links (with conditions) decide where the work goes next. There is no separate "exit" object. Older documents with `exits` and `exit:<name>` are converted automatically when read or written (the exit name becomes the link name and its "when" the link condition).
 
-Rules the checks enforce (see `cagent.py check`):
+Rules the checks enforce (see `cagent.py check`). Every issue has a `level`: `error` blocks export (the user can still export a draft), `warning` only points at a likely mistake. `check` is `ok` when there is no error.
 
 - Ids: agents `A1…`, steps `N1…` and edges `L1…` inside each agent, links `L1…` at the agent level, tools `T1…`. Number in flow order from the start; never reuse an id. `put` refuses a document with a missing, malformed, or repeated id, or a field of the wrong type (text fields are strings, list fields are lists; never `null`).
 - Flow: every agent is reachable from `start` and some link reaches `end`; every agent has steps; inside an agent every step is reachable from `start`, has an outgoing edge (no dead end), and some edge reaches `end`. Edges leave `start` or a step and arrive at a step or `end`.
@@ -61,4 +63,7 @@ Rules the checks enforce (see `cagent.py check`):
 - Process chain: when process rows name their input/output, a row may only use a data name the step receives or an earlier row made, and every step output must come out of some row (free text that is not a data name is not checked).
 - Step kinds: a 판단 step uses a tool of kind `모델`; a 사람 확인 step is listed in `human_points` (as `A1-N3`).
 - Scenario paths: every number written in a scenario `path` (A1, L2, A1-N3, A1-L4) exists.
+- No edge or link goes from a node to itself (a retry belongs in `on_fail`, or goes through another step).
+- Warnings: a glossary entry nobody uses; a `목록`/`객체` field without a `desc` of what it holds; two agents (or two steps in one agent) with the same name; a number like `S1-N2` in any text that is not a real step or edge id (write the real ids).
+- `color` is empty or `#rrggbb`.
 - Process names and tool locations may be implementation names (files, modules, classes, functions, endpoints); every other field stays in plain language.

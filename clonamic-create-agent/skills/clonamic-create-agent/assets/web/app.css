@@ -114,7 +114,9 @@ textarea { resize: vertical; line-height: 1.6; }
 #crumb button:hover { text-decoration: underline; background: none; }
 #steps { display: flex; gap: 4px 14px; flex-wrap: wrap; list-style: none; margin: 2px 0 0; padding: 0; font-size: 0.75rem; color: var(--muted); }
 #steps[hidden] { display: none; }
-#steps li { display: flex; gap: 5px; align-items: center; }
+#steps li { display: flex; align-items: center; }
+#steps li button { display: flex; gap: 5px; align-items: center; border: 0; background: none; padding: 2px 4px; margin: 0 -4px; min-height: 0; color: inherit; font: inherit; border-radius: 6px; cursor: pointer; }
+#steps li button:hover { background: var(--surface-2); }
 #steps .n { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font-size: 0.625rem; font-weight: 600; background: var(--surface-2); }
 #steps li.done .n { background: var(--ok); color: var(--surface); }
 #steps li.current { color: var(--text); font-weight: 600; }
@@ -272,9 +274,11 @@ dl.keys dd { margin: 0; color: var(--muted); }
 #right.both #panel-doc { flex: 1 1 55%; min-height: 0; }
 #right.both #panel-chat { flex: 1 1 45%; border-top: 1px solid var(--line-soft); padding-top: 8px; }
 
-.doc-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin: 4px 0 12px; }
-.doc-head h2 { font-size: 1.0625rem; margin-top: 3px; min-width: 0; overflow-wrap: anywhere; }
-.doc-head .row { flex-shrink: 0; flex-wrap: nowrap; }
+/* The title keeps at least 12em; when the buttons do not fit beside it they move to the next line
+   (a fixed button row used to squeeze the title to one character per line). */
+.doc-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 10px; align-items: flex-start; margin: 4px 0 12px; }
+.doc-head h2 { flex: 1 1 12em; font-size: 1.0625rem; margin-top: 3px; min-width: 0; overflow-wrap: anywhere; }
+.doc-head .row { flex-wrap: wrap; }
 .route { color: var(--muted); margin: -6px 0 12px; overflow-wrap: anywhere; }
 .group { background: var(--surface-2); border-radius: var(--r-m); padding: 12px; display: grid; gap: 12px; margin-bottom: 12px; }
 details.group > summary { cursor: pointer; font-weight: 600; color: var(--muted); list-style: none; display: flex; align-items: center; gap: 6px; }
@@ -337,6 +341,7 @@ pre.preview { white-space: pre-wrap; word-break: break-word; background: var(--s
 #ai-state { margin: 0 14px 6px; padding: 7px 10px; font-size: 0.75rem; color: var(--muted); border-radius: var(--r-s); background: var(--surface-2); display: flex; gap: 6px; align-items: center; }
 #ai-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
 #ai-state.off::before { background: var(--muted); }
+#ai-state.busy::before { background: var(--hl); }
 #messages { flex: 1; overflow: auto; padding: 8px 14px; display: flex; flex-direction: column; gap: 8px; }
 .msg { padding: 8px 12px; border-radius: 16px; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 88%; line-height: 1.55; }
 .msg.user { background: var(--accent-fill); color: var(--on-accent); align-self: flex-end; border-bottom-right-radius: 5px; }
@@ -376,6 +381,7 @@ pre.preview { white-space: pre-wrap; word-break: break-word; background: var(--s
 .modal-box h2 { font-size: 1.0625rem; }
 .modal-box > .row:last-child { justify-content: flex-end; margin-top: 4px; }
 .issues { margin: 0; padding-left: 18px; color: var(--danger); display: grid; gap: 4px; overflow-wrap: anywhere; }
+.issues li.warning { color: var(--muted); }
 .issues button { border: 0; background: none; padding: 0; min-height: 0; color: inherit; text-align: left; text-decoration: underline; }
 .ok { color: var(--ok); }
 @keyframes fade { from { opacity: 0; } }

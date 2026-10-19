@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import secrets
 import socket
 import subprocess
@@ -26,7 +27,7 @@ import webbrowser
 from pathlib import Path
 
 import korean
-from store import data_dir
+from store import code_hash, data_dir
 
 HERE = Path(__file__).resolve().parent
 BASE, SPAN = 23232, 100
@@ -76,19 +77,29 @@ def pick_port() -> int | None:
     return next((p for p in range(BASE, BASE + SPAN) if free(p)), None)
 
 
-def start_server() -> int:
+def log_tail() -> str:
+    """The last error line in server.log (a broken database, a bad Python), so a failed start says why."""
+    try:
+        lines = (data_dir() / "server.log").read_text(errors="replace").strip().splitlines()
+    except OSError:
+        return ""
+    return next((x.strip() for x in reversed(lines) if "Error" in x or "error" in x), lines[-1].strip() if lines else "")
+
+
+def start_server(first: float = 180.0) -> int:
+    """`first`: how long the server waits for its first tab (longer when no browser is opened for the user)."""
     port = pick_port()
     if port is None:
         out({"ok": False, "error": f"{BASE}~{BASE + SPAN - 1} 사이에 빈 포트가 없습니다."}, 2)
     data_dir().mkdir(parents=True, exist_ok=True)
     log = open(data_dir() / "server.log", "ab")
-    subprocess.Popen([sys.executable, str(HERE / "server.py"), "--port", str(port)], stdout=log, stderr=log,
+    subprocess.Popen([sys.executable, str(HERE / "server.py"), "--port", str(port), "--first", str(first)], stdout=log, stderr=log,
                      stdin=subprocess.DEVNULL, start_new_session=True, cwd=str(HERE))
     for _ in range(50):
         if ours(port):
             return port
         time.sleep(0.1)
-    out({"ok": False, "error": "편집기 서버가 시작되지 않았습니다.", "log": str(data_dir() / "server.log")}, 2)
+    out({"ok": False, "error": "편집기 서버가 시작되지 않았습니다.", "reason": log_tail(), "log": str(data_dir() / "server.log")}, 2)
 
 
 def need_server() -> int:
@@ -108,10 +119,11 @@ def resolve_project(port: int, ref: str) -> int | None:
 
 def cmd_open(args) -> None:
     first = not data_dir().exists()
-    port = find_server() or start_server()
-    pid = None
+    port = find_server() or start_server(1800.0 if args.no_browser else 180.0)
+    pid, reopened = None, False
     if args.new:  # running the same command again reopens that project instead of making a copy
         pid = resolve_project(port, args.new)
+        reopened = pid is not None
         if pid is None:
             _, made = call(port, "POST", "/api/projects", {"name": args.new})
             pid = made["id"]
@@ -123,8 +135,12 @@ def cmd_open(args) -> None:
     if not args.no_browser:
         webbrowser.open(url)
     _, projects = call(port, "GET", "/api/projects")
-    out({"ok": True, "url": url, "port": port, "project": pid, "session": secrets.token_hex(6),
-         "data_dir": str(data_dir()), "first_run": first,
+    _, health = call(port, "GET", "/api/health")
+    stale = health.get("code") != code_hash()  # started from older files: the tabs still run the old editor
+    out({"ok": True, "url": url, "port": port, "project": pid, "session": secrets.token_hex(6), "reopened": reopened,
+         "data_dir": str(data_dir()), "first_run": first, "stale": stale,
+         **({"notice": "편집기 서버가 예전 코드로 돌고 있습니다. 열린 탭을 모두 닫으면 10초 뒤 꺼지고, 다시 실행하면 새 코드로 뜹니다."}
+            if stale else {}),
          "projects": [{"id": p["id"], "name": p["name"]} for p in projects][:20] if pid is None else None})
 
 
@@ -134,6 +150,7 @@ def cmd_wait(args) -> None:
     port = find_server()
     if port is None:  # the tabs closed between two waits
         return out({"status": "closed"})
+    args.timeout = max(1.0, min(args.timeout if math.isfinite(args.timeout) else 55.0, 600.0))  # never a busy loop
     failures = 0
     while True:
         try:
@@ -205,7 +222,8 @@ def cmd_check(args) -> None:
     status, data = call(port, "GET", f"/api/projects/{args.project}/check")
     if status != 200:
         out({"ok": False, **data}, 2)
-    out({"ok": not data["issues"], **data})
+    errors = [i for i in data["issues"] if i.get("level", "error") == "error"]  # warnings never block
+    out({"ok": not errors, "errors": len(errors), "warnings": len(data["issues"]) - len(errors), **data})
 
 
 def cmd_korean(args) -> None:

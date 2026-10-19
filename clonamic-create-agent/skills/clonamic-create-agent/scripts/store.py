@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import threading
@@ -16,6 +17,16 @@ HISTORY = 100  # saved versions kept per project (the editor autosaves, so this 
 
 def data_dir() -> Path:
     return Path.home() / ".clonamic" / "create-agent"
+
+
+def code_hash() -> str:
+    """Fingerprint of the code a server runs (scripts and web files), so `open` can tell a server started from
+    older files."""
+    root = Path(__file__).resolve().parent.parent
+    h = hashlib.sha256()
+    for p in sorted([*root.glob("scripts/*.py"), *(x for x in root.glob("assets/web/**/*") if x.is_file())]):
+        h.update(p.relative_to(root).as_posix().encode() + b"\0" + p.read_bytes())
+    return h.hexdigest()[:12]
 
 
 class Conflict(Exception):
@@ -45,6 +56,10 @@ class Store:
                     id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, date TEXT NOT NULL,
                     what TEXT NOT NULL, why TEXT NOT NULL, affected TEXT NOT NULL);
             """)
+        try:
+            path.chmod(0o600)  # the design may hold private plans; only this user reads it
+        except OSError:
+            pass
 
     # projects
     # One connection is shared by the server's threads, so reads take the same lock as writes

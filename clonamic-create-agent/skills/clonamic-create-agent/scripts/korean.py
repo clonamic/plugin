@@ -22,7 +22,7 @@ INSTALL = {
     "codex": ["codex plugin marketplace add clonamic/plugin", "codex plugin add clonamic-korean@clonamic"],
     "cursor": [f'tmp="$(mktemp -d)" && git clone --depth 1 {REPO} "$tmp" && mkdir -p ~/.cursor/plugins/local && '
                'cp -R "$tmp/clonamic-korean" ~/.cursor/plugins/local/clonamic-korean && rm -rf "$tmp"'],
-    "grok": [f"grok plugin install {REPO}#clonamic-korean --trust", "grok plugin enable clonamic-korean"],
+    "grok": [f"grok plugin install {REPO}#clonamic-korean", "grok plugin enable clonamic-korean"],  # trust stays the user's call
 }
 RULES = ["ai-tells.md", "rewriting.md", "preserve.md", "norms.md", "plain-korean.md"]
 

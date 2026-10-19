@@ -73,7 +73,7 @@ function restore(from, to) {
   to.push(JSON.stringify(S.doc));
   S.doc = JSON.parse(from.pop());
   S.lastKey = null;
-  if (S.level !== "agents" && !agentOf(S.level)) { S.level = "agents"; S.fitNext = true; }
+  if (S.level !== "agents" && !agentOf(S.level)) { S.level = "agents"; S.fitNext = true; history.replaceState(null, "", hashFor()); }
   if (S.sel && !selected()) S.sel = null;
   markDirty();
   renderAll();
@@ -166,14 +166,15 @@ function ago(sec) {
   if (d < 3600) return `${Math.floor(d / 60)}분 전 수정`;
   if (d < 86400) return `${Math.floor(d / 3600)}시간 전 수정`;
   const t = new Date(sec * 1000);
-  return `${t.getMonth() + 1}월 ${t.getDate()}일 수정`;
+  return `${d > 365 * 86400 ? `${t.getFullYear()}년 ` : ""}${t.getMonth() + 1}월 ${t.getDate()}일 수정`;
 }
 function askDelete(p) {
   const input = el("input", { placeholder: p.name });
   modal("프로젝트 삭제", [el("p", {}, `편집기에서 '${p.name}' 프로젝트를 지웁니다. 이미 내보낸 문서 폴더는 그대로 남습니다. 확인하려면 프로젝트 이름을 입력하세요.`), input], [
     ["삭제", async () => {
       if (input.value.trim() !== p.name) { input.focus(); return; }
-      await api("DELETE", `/api/projects/${p.id}`);
+      const res = await api("DELETE", `/api/projects/${p.id}`);
+      if (!res.ok && res.status !== 404) { input.after(el("p", { class: "issues" }, res.data.error || "지우지 못했습니다.")); return; }
       closeModal();
       if (S.pid === p.id) { clearTimeout(S.saveTimer); S.dirty = false; S.pid = null; S.doc = null; location.hash = ""; renderAll(); }
       loadProjects();
@@ -183,12 +184,13 @@ function askDelete(p) {
 }
 
 $("new-project").addEventListener("click", () => {
-  const input = el("input", { placeholder: "예: 여행 일정 도우미" });
+  const input = el("input", { placeholder: "예: 여행 일정 도우미", maxlength: "80" });
   const create = async () => {
-    const { data } = await api("POST", "/api/projects", { name: input.value.trim() || "새 프로젝트" });
+    const res = await api("POST", "/api/projects", { name: input.value.trim() || "새 프로젝트" });
+    if (!res.ok || !res.data.id) { input.after(el("p", { class: "issues" }, res.data.error || "만들지 못했습니다.")); return; }
     closeModal();
     await loadProjects();
-    openProject(data.id);
+    openProject(res.data.id);
   };
   input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) create(); });
   modal("새 프로젝트", [input], [["만들기", create, "primary"], ["취소", closeModal]]);
@@ -205,16 +207,17 @@ $("import-file").addEventListener("change", async (e) => {
   openProject(res.data.id);
 });
 
-async function openProject(pid) {
+async function openProject(pid, level = "agents") {
   await flushSave();
   const { ok, data } = await api("GET", `/api/projects/${pid}`);
-  if (!ok) return;
+  if (!ok) { missingProject(pid); return; }
   S.pid = pid; S.doc = data.doc; S.version = data.version; S.polished = data.polished;
-  S.exportPath = data.export_path; S.defaultPath = data.default_path; S.aiSeen = data.ai_seen;
-  S.level = "agents"; S.sel = null; S.msgs = []; S.lastMsg = 0; S.msgsLoaded = false; S.preview = false;
-  S.undo = []; S.redo = []; S.lastKey = null; S.fitNext = true;
+  S.exportPath = data.export_path; S.defaultPath = data.default_path; S.aiSeen = data.ai_seen; S.aiWaiting = data.ai_waiting;
+  S.level = level !== "agents" && data.doc.agents.some((a) => a.id === level) ? level : "agents";
+  S.sel = null; S.msgs = []; S.lastMsg = 0; S.msgsLoaded = false; S.preview = false;
+  S.undo = []; S.redo = []; S.lastKey = null; S.fitNext = true; S.views = {}; S.blocked = false;
   $("toast").hidden = true;  // a toast belongs to the project it was shown in
-  if (location.hash !== `#${pid}`) history.replaceState(null, "", `#${pid}`);
+  if (location.hash !== hashFor()) history.replaceState(null, "", hashFor());
   loadProjects();
   await loadMessages();
   renderAll();
@@ -233,27 +236,45 @@ function markDirty() {
 // S.saving holds the request in flight, so flushSave() can wait for it before switching projects or exporting.
 function save() {
   if (S.saving) return S.saving;
-  if (!S.dirty || !S.pid) return Promise.resolve();
+  if (!S.dirty || !S.pid || S.blocked) return Promise.resolve();
   S.dirty = false;
   return (S.saving = saveNow(S.pid).finally(() => { S.saving = null; if (S.dirty) markDirty(); }));
 }
 async function saveNow(pid) {
   const res = await api("PUT", `/api/projects/${pid}`, { doc: S.doc, version: S.version });
   if (pid !== S.pid) return;
-  if (res.ok) {
-    S.version = res.data.version; S.polished = false; S.savedAt = Date.now();
+  if (res.ok && res.data.merged) {
+    // Saved on top of someone else's change (another tab or the AI). Until the merged document is loaded, the
+    // next save keeps the old base version, so the server merges it again instead of overwriting their change.
+    S.savedAt = Date.now();
+    if (!S.dirty) { await reloadDoc(); setSave("저장됨 · 다른 곳 변경과 합침"); toast("다른 곳(다른 탭이나 AI)에서 바꾼 내용과 합쳐 저장했습니다", false); }
+  } else if (res.ok) {
+    S.version = res.data.version; S.savedAt = Date.now();
+    S.polished = !!res.data.polished;
     setSave("저장됨 · 방금");
     refreshIssues();
   } else if (res.status === 409) {
-    S.dirty = false;
-    await reloadDoc();
-    setSave("다른 곳에서 바뀌어 최신 내용을 다시 불러왔습니다");
+    conflictDialog(res.data);
   } else {
     S.dirty = true;
     setSave("저장 실패 · 다시 시도합니다");
     clearTimeout(S.saveTimer);
     S.saveTimer = setTimeout(save, 2000);
   }
+}
+// Both sides changed the same thing: the user picks. Saving waits until then.
+function conflictDialog(data) {
+  S.blocked = true; S.dirty = false;
+  setSave("저장 보류 · 같은 곳을 다른 곳에서 먼저 고쳤습니다");
+  const what = (data.conflicts || []).join(", ");
+  const done = () => { S.blocked = false; closeModal(); };
+  modal("같은 곳을 다른 곳에서 먼저 고쳤습니다", [
+    el("p", {}, what ? `겹친 곳: ${what}` : "이 문서가 다른 탭이나 AI에서 여러 번 바뀌었습니다."),
+    el("p", { class: "muted" }, "내 것으로 저장하면 그 곳은 내 값으로 덮습니다. 최신 내용을 불러오면 내 수정은 되돌리기(⌘Z)로 다시 볼 수 있습니다."),
+  ], [
+    ["내 것으로 저장", () => { done(); S.version = data.version; S.dirty = true; save(); }, "primary"],
+    ["최신 내용 불러오기", async () => { done(); await reloadDoc(); setSave("최신 내용을 불러왔습니다"); }],
+  ]);
 }
 async function flushSave() {
   clearTimeout(S.saveTimer);
@@ -265,9 +286,9 @@ async function reloadDoc() {
   const { ok, data } = await api("GET", `/api/projects/${S.pid}`);
   if (!ok) return;
   if (JSON.stringify(data.doc) !== JSON.stringify(S.doc)) snapshot();  // AI edits and applied cards can be undone too
-  S.doc = data.doc; S.version = data.version; S.polished = data.polished; S.aiSeen = data.ai_seen;
+  S.doc = data.doc; S.version = data.version; S.polished = data.polished; S.aiSeen = data.ai_seen; S.aiWaiting = data.ai_waiting;
   S.exportPath = data.export_path;
-  if (S.level !== "agents" && !agentOf(S.level)) { S.level = "agents"; S.fitNext = true; }
+  if (S.level !== "agents" && !agentOf(S.level)) { S.level = "agents"; S.fitNext = true; history.replaceState(null, "", hashFor()); }
   if (S.sel && !selected()) S.sel = null;
   renderAll();
   refreshIssues();
@@ -277,12 +298,14 @@ async function refreshIssues() {
   const { ok, data } = await api("GET", `/api/projects/${S.pid}/check`);
   if (ok) { S.issues = data.issues; renderIssueButton(); }
 }
+const errorsOf = (issues) => issues.filter((i) => i.level !== "warning");
 function renderIssueButton() {
   renderSteps();
   const b = $("btn-issues");
   if (!b) return;
-  b.textContent = S.issues.length ? `검사 ${S.issues.length}` : "검사 통과";
-  b.classList.toggle("warn", S.issues.length > 0);
+  const e = errorsOf(S.issues).length, w = S.issues.length - e;
+  b.textContent = e ? `검사 오류 ${e}${w ? ` · 주의 ${w}` : ""}` : w ? `검사 통과 · 주의 ${w}` : "검사 통과";
+  b.classList.toggle("warn", e > 0);
 }
 // Where the design stands: requirements → agents → detailed design → review and polish → export.
 function renderSteps() {
@@ -293,23 +316,29 @@ function renderSteps() {
   const done = [
     ["summary", "want", "success", "inputs", "outputs"].every((k) => hasValue(d[k])),
     d.agents.length > 0 && d.links.some((l) => l.from === "start") && d.links.some((l) => l.to === "end"),
-    d.agents.length > 0 && d.agents.every((a) => a.steps.length) && !S.issues.length,
+    d.agents.length > 0 && d.agents.every((a) => a.steps.length) && !errorsOf(S.issues).length,
     S.polished,
     !!S.exportPath,
   ];
   const cur = done.indexOf(false);
+  // Each step opens where its work is done.
+  const go = [() => select("project", ""), () => (curAgent() ? back() : fitView()), openIssues, () => setBoth(false, "chat"), openExport];
   box.replaceChildren(...["요구사항", "에이전트 구성", "상세 설계", "검토·다듬기", "내보내기"].map((label, i) =>
     el("li", { class: done[i] ? "done" : i === cur ? "current" : "", "aria-current": i === cur ? "step" : null },
-      el("span", { class: "n", "aria-hidden": "true" }, done[i] ? "✓" : String(i + 1)), label)));
+      el("button", { type: "button", on: { click: go[i] } },
+        el("span", { class: "n", "aria-hidden": "true" }, done[i] ? "✓" : String(i + 1)), label))));
 }
 function openIssues() {
+  const e = errorsOf(S.issues).length, w = S.issues.length - e;
   modal("검사 결과", S.issues.length
-    ? [el("p", {}, `고칠 항목 ${S.issues.length}개입니다. 누르면 그 위치로 갑니다.`), issueList(S.issues)]
+    ? [el("p", {}, `${e ? `오류 ${e}개는 내보내기 전에 고쳐야 하고` : "내보내기를 막는 오류는 없고"}${w ? `, 주의 ${w}개는 확인해 보세요` : ""}. 누르면 그 위치로 갑니다.`), issueList(S.issues)]
     : [el("p", { class: "ok" }, "검사에 걸린 항목이 없습니다.")], [["닫기", closeModal]]);
 }
 function issueList(issues) {
-  return el("ul", { class: "issues" }, ...issues.map((i) => el("li", {},
-    el("button", { type: "button", on: { click: () => { closeModal(); goTo({ glossary: "glossary", tool: i.target === "project" ? "tools" : i.target }[i.code] || i.target); } } }, i.message))));
+  const sorted = [...errorsOf(issues), ...issues.filter((i) => i.level === "warning")];
+  return el("ul", { class: "issues" }, ...sorted.map((i) => el("li", { class: i.level === "warning" ? "warning" : null },
+    el("button", { type: "button", on: { click: () => { closeModal(); goTo({ glossary: "glossary", tool: i.target === "project" ? "tools" : i.target }[i.code] || i.target); } } },
+      i.level === "warning" ? "주의 · " : "오류 · ", i.message))));
 }
 setInterval(() => {
   if (S.savedAt && !S.dirty && !S.saving) {
@@ -317,12 +346,25 @@ setInterval(() => {
     setSave(min < 1 ? "저장됨 · 방금" : `저장됨 · ${min}분 전`);
   }
 }, 30000);
-// keepalive lets the last edit reach the server while the tab closes (browsers cap such a body at 64 KB).
-window.addEventListener("beforeunload", () => { if (S.dirty && S.pid) api("PUT", `/api/projects/${S.pid}`, { doc: S.doc, version: S.version }, true); });
+// Leaving the tab (switching away, minimizing, closing) saves at once. While it closes, keepalive carries the last
+// edit only up to 64 KB, so a larger unsaved document asks the browser to confirm leaving instead.
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushSave(); });
+window.addEventListener("beforeunload", (e) => {
+  if (!S.dirty || !S.pid || S.blocked) return;
+  const body = JSON.stringify({ doc: S.doc, version: S.version });
+  if (new Blob([body]).size < 60000) api("PUT", `/api/projects/${S.pid}`, { doc: S.doc, version: S.version }, true);
+  else e.preventDefault();
+});
 
 // ---------- events from server ----------
 function listen() {
   const source = new EventSource("/api/events");
+  // After a reconnect (the server restarted, the laptop slept) catch up with what changed meanwhile.
+  source.onopen = async () => {
+    if (!S.pid || S.dirty || S.saving) return;
+    const { ok, data } = await api("GET", `/api/projects/${S.pid}`);
+    if (ok && data.version > S.version) reloadDoc();
+  };
   source.onmessage = async (e) => {
     const ev = JSON.parse(e.data);
     if (ev.type === "projects") loadProjects();
@@ -381,7 +423,7 @@ const uniq = (list) => [...new Set(list.filter(Boolean))];
 // One card = a stack of fixed-height parts, so heights, ports, and click areas all come from the same numbers.
 function buildSpecs() {
   const a = curAgent(), list = [];
-  const destName = (e) => nodeName(a, e.to);
+  const destName = (e) => (["start", "end"].includes(e.to) ? nodeName(a, e.to) : `${e.to} ${nodeName(a, e.to)}`);  // two cards may share a name
   // 다음 rows: where each link goes ("condition → destination" for a conditional one) and the data it carries.
   const edgeRows = (id, always) => {
     const outs = outgoing(id);
@@ -520,7 +562,7 @@ function renderGraph() {
   if (!S.doc) { if (cy) cy.elements().remove(); $("cards-inner").replaceChildren(); return; }
   if (!cy) {
     // Box selection needs a modifier (Shift) because dragging the empty canvas pans.
-    cy = cytoscape({ container: $("cy"), style: STYLE(), wheelSensitivity: 0.3, boxSelectionEnabled: true, selectionType: "single", minZoom: 0.2, maxZoom: 2.5 });
+    cy = cytoscape({ container: $("cy"), style: STYLE(), boxSelectionEnabled: true, selectionType: "single", minZoom: 0.2, maxZoom: 2.5 });
     cy.on("tap", "node", (e) => tapNode(e.target, e.position));
     cy.on("dbltap", (e) => { if (e.target === cy) quickAdd(e); });
     cy.on("cxttap", (e) => {
@@ -532,7 +574,11 @@ function renderGraph() {
     cy.on("select unselect", () => markMulti());
     cy.on("tap", "edge", (e) => select(curAgent() ? "edge" : "link", e.target.id().split(":")[1]));
     // A tap on empty canvas keeps the last opened document; the 검토 tab is one click away.
-    cy.on("dbltap", "node", (e) => { if (!curAgent() && agentOf(e.target.id())) enter(e.target.id()); });
+    cy.on("dbltap", "node", (e) => {
+      const id = e.target.id();
+      if (!curAgent() && agentOf(id)) enter(id);
+      else if (curAgent() && !["start", "end"].includes(id)) select("step", id, "name");
+    });
     cy.on("dragfree", "node", (e) => {
       snapshot();
       if (!S.alt && !e.originalEvent?.altKey) {  // Alt keeps the exact drop position
@@ -559,11 +605,13 @@ function renderGraph() {
   const missing = [];
   cy.nodes().forEach((n) => { if (!stale && pos[n.id()]) n.position(pos[n.id()]); else missing.push(n); placeCard(n); });
   // A whole new level (or one the AI mostly rewrote) is laid out; a few new cards go next to what they link to.
-  if (stale || missing.length * 2 > cy.nodes().length) { if (stale) snapshot(); arrange(false); }
+  // Laying out what is only being looked at changes no document version: the positions ride along with the
+  // next real edit (opening a level must not save, unpolish, or race the AI's put).
+  if (stale || missing.length * 2 > cy.nodes().length) arrange(false);
   else {
     if (missing.length) placeNear(missing);
-    if (resolveOverlaps() || missing.length) { savePositions(); markDirty(); }
-    if (S.fitNext) openView();
+    if (resolveOverlaps() || missing.length) savePositions();
+    if (S.fitNext) restoreView() || openView();
   }
   S.fitNext = false;
   markBack();
@@ -616,14 +664,25 @@ function markBack() {
     const up = list.filter((v) => v.T.y < v.S.y - 1).sort((p, q) => q.S.y - p.S.y);
     for (const group of [down, up]) group.forEach((v, i) => turns.set(v.e.id(), 18 + 12 * (group.length - 1 - i)));
   }
+  // Links back to the left run around the cards above or below; each gets its own track 12px further out,
+  // shorter ones inside, so two loops never share a line.
+  const backY = new Map(), tracks = { above: [], below: [] };
+  for (const v of info.values()) {
+    if (!v.back) continue;
+    const lo = Math.min(v.S.x, v.T.x) - 30, hi = Math.max(v.S.x, v.T.x) + 30;
+    const span = [...boxes.values()].filter((b) => b.x2 > lo && b.x1 < hi);
+    const above = Math.min(...span.map((b) => b.y1)) - 26, below = Math.max(...span.map((b) => b.y2)) + 26;
+    const mid = (v.S.y + v.T.y) / 2, side = mid - above < below - mid ? "above" : "below";
+    tracks[side].push({ v, y: side === "above" ? above : below, len: hi - lo });
+  }
+  for (const [side, list] of Object.entries(tracks)) {
+    list.sort((p, q) => p.len - q.len).forEach((t, i) => backY.set(t.v.e.id(), t.y + (side === "above" ? -12 : 12) * i));
+  }
   for (const v of info.values()) {
     const { e, S, T } = v;
     let pts;
     if (v.back) {
-      const lo = Math.min(S.x, T.x) - 30, hi = Math.max(S.x, T.x) + 30;
-      const span = [...boxes.values()].filter((b) => b.x2 > lo && b.x1 < hi);
-      const above = Math.min(...span.map((b) => b.y1)) - 26, below = Math.max(...span.map((b) => b.y2)) + 26;
-      const mid = (S.y + T.y) / 2, y = mid - above < below - mid ? above : below;
+      const y = backY.get(e.id());
       pts = [[S.x + 18, S.y], [S.x + 18, y], [T.x - 18, y], [T.x - 18, T.y]];
     } else if (Math.abs(T.y - S.y) < 1) pts = [];
     else if (v.long) {
@@ -696,7 +755,7 @@ function markSelection() {
 
 const RANK_SEP = 96;
 // Lay the level out with layered() (layout.js): columns left to right, each card lined up with the 다음 row it comes from.
-function arrange(save = true) {
+function arrange(save = true) {  // save: the user asked for it (undoable, saved); otherwise only for viewing
   if (save) snapshot();
   const nodes = cy.nodes().map((n) => {
     const sp = specs.get(n.id());
@@ -705,7 +764,7 @@ function arrange(save = true) {
   const edges = cy.edges().map((e) => ({ source: e.data("source"), target: e.data("target"), outY: e.data("sy") }));
   const pos = layered(nodes, edges, { rankSep: RANK_SEP });
   cy.nodes().forEach((n) => { if (pos[n.id()]) n.position(pos[n.id()]); });
-  resolveOverlaps(); savePositions(); markDirty(); markBack(); openView();
+  resolveOverlaps(); savePositions(); if (save) markDirty(); markBack(); if (save || !restoreView()) openView();
 }
 function savePositions() {
   const pos = layout(S.level);
@@ -722,11 +781,17 @@ function zoomBy(f) {
   const r = $("cy").getBoundingClientRect();
   cy.zoom({ level: cy.zoom() * f, renderedPosition: { x: r.width / 2, y: r.height / 2 } });
 }
-const fitView = () => { if (cy) { cy.resize(); cy.fit(undefined, 60); } };
+// Fitting leaves room for the floating toolbars and never blows a near-empty level up past natural size.
+function fitCapped(cap) {
+  cy.resize();
+  cy.fit(undefined, 80);
+  if (cy.zoom() > cap) { cy.zoom(cap); cy.center(); }
+}
+const fitView = () => { if (cy) fitCapped(1.5); };
 // First view of a level: everything if it is still readable, otherwise readable size starting from the left (the start).
 function openView() {
-  cy.resize();
-  cy.fit(undefined, 60);
+  fitCapped(1);
+  if (cy.nodes().length <= 2) { cy.panBy({ x: 0, y: -170 }); return; }  // only 시작 and 끝: keep them above the empty-level card
   if (cy.zoom() >= 0.7) return;
   const box = cy.nodes().boundingBox();
   cy.zoom(0.7);
@@ -820,7 +885,7 @@ function startPortDrag(e, nodeId, rowIndex) {
     if (drag.moved < 6) return addNext(drag.nodeId, drag.rowIndex);  // a click on a port adds the next node
     if (drag.empty) {  // dropped on empty canvas: make a node there and connect to it
       snapshot();
-      const [kind, id] = createAt(curAgent() ? "step" : "agent", { x: drag.empty.x + CARD_W / 2, y: drag.empty.y }, { noSnapshot: true, quiet: true });
+      const [kind, id] = createAt(curAgent() ? "step" : "agent", { x: drag.empty.x + CARD_W / 2, y: drag.empty.y }, { noSnapshot: true, quiet: true, noStartLink: true });
       dropLink(drag.nodeId, drag.rowIndex, id, { noSnapshot: true });
       select(kind, id, "name");
       toast("새로 만들고 연결했습니다");
@@ -865,8 +930,43 @@ function after(kind, id, focus = null) {
   }
 }
 
-function enter(aid) { S.level = aid; S.sel = null; S.fitNext = true; renderAll(); }
-function back() { S.level = "agents"; S.sel = null; S.fitNext = true; renderAll(); }
+// ---------- levels and the address ----------
+// The address is #<project> or #<project>/<agent>, so back, forward, and reload keep the level. Each level
+// remembers its zoom and position for this visit; coming out selects the agent you were in.
+const hashFor = (level = S.level) => (S.pid ? `#${S.pid}${level !== "agents" ? `/${level}` : ""}` : "");
+function keepView() { if (cy && S.doc) (S.views ||= {})[S.level] = { zoom: cy.zoom(), pan: { ...cy.pan() } }; }
+function restoreView() {
+  const v = S.views?.[S.level];
+  if (!v) return false;
+  cy.resize(); cy.viewport({ zoom: v.zoom, pan: v.pan });
+  return true;
+}
+function setLevel(level, push = true) {
+  if (level === S.level) return;
+  keepView();
+  const from = S.level;
+  S.level = level; S.fitNext = true;
+  S.sel = level === "agents" && agentOf(from) ? { kind: "agent", id: from } : null;
+  if (push && location.hash !== hashFor()) history.pushState(null, "", hashFor());
+  renderAll();
+}
+const enter = (aid) => setLevel(aid);
+const back = () => setLevel("agents");
+function parseHash() {
+  const m = /^#(\d+)(?:\/(A\d+))?$/.exec(location.hash);
+  return m ? { pid: Number(m[1]), level: m[2] || "agents" } : null;
+}
+function missingProject(pid) {
+  history.replaceState(null, "", hashFor());
+  modal("프로젝트가 없습니다", [el("p", {}, `${pid}번 프로젝트를 찾지 못했습니다. 지워졌거나 주소가 틀렸습니다.`)], [["닫기", closeModal]]);
+}
+async function followHash() {
+  const r = parseHash();
+  if (!r) { if (location.hash && S.pid) history.replaceState(null, "", hashFor()); return; }
+  if (r.pid !== S.pid) return openProject(r.pid, r.level);
+  if (r.level !== "agents" && !agentOf(r.level)) { history.replaceState(null, "", hashFor()); return; }
+  setLevel(r.level, false);
+}
 
 function renderCanvasEmpty() {
   const box = $("canvas-empty"), a = curAgent();
@@ -999,6 +1099,10 @@ function createAt(what, pos, opts = {}) {
   let kind, id, nodeId;
   if (what === "agent") { id = newAgent(); kind = "agent"; nodeId = id; }
   else { id = newStep(a); kind = "step"; nodeId = id; }
+  // The first card of a level starts the flow.
+  const list = a ? a.edges : S.doc.links, cards = a ? a.steps : S.doc.agents;
+  if (cards.length === 1 && !list.some((x) => x.from === "start") && !opts.noStartLink)
+    list.push({ id: nextId(list, "L"), from: "start", to: id, kind: "always", name: "", passes: [] });
   layout(S.level)[nodeId] = freeSpot(pos, CARD_W, 130);
   markDirty();
   renderGraph();
@@ -1022,7 +1126,7 @@ function addNext(srcId, rowIndex) {
   const part = rowIndex >= 0 ? partOf(sp, "row", rowIndex) : partOf(sp, "head");
   const y = n.position("y") - sp.h / 2 + part.y + part.h / 2;
   snapshot();
-  const [kind, id] = createAt(curAgent() ? "step" : "agent", { x: n.position("x") + sp.w / 2 + 90 + CARD_W / 2, y }, { noSnapshot: true, quiet: true });
+  const [kind, id] = createAt(curAgent() ? "step" : "agent", { x: n.position("x") + sp.w / 2 + 90 + CARD_W / 2, y }, { noSnapshot: true, quiet: true, noStartLink: true });
   dropLink(srcId, rowIndex, id, { noSnapshot: true });
   select(kind, id, "name");
   toast("다음 단계를 이어서 만들었습니다");
@@ -1036,7 +1140,7 @@ function insertBetween(kind, id) {
   snapshot();
   const mid = { x: (s.position("x") + t.position("x")) / 2, y: (s.position("y") + t.position("y")) / 2 };
   const target = e.to;
-  const [nk, nid] = createAt(a ? "step" : "agent", mid, { noSnapshot: true, quiet: true });
+  const [nk, nid] = createAt(a ? "step" : "agent", mid, { noSnapshot: true, quiet: true, noStartLink: true });
   e.to = nid;
   const list = a ? a.edges : S.doc.links;
   list.push({ id: nextId(list, "L"), from: nid, to: target, kind: "always", name: "", passes: [...(e.passes || [])] });
@@ -1126,15 +1230,22 @@ function removeSelected() {
   toast(ids.length > 1 ? `${ids.length}개를 지웠습니다` : "지웠습니다");
 }
 const multiIds = () => (cy ? cy.$(":selected").map((x) => x.id()).filter((id) => id !== "start" && id !== "end") : []);
+// How many links go away with these cards (the dialog says so before anything is deleted).
+function linkCount(ids) {
+  const a = curAgent(), set = new Set(ids);
+  return (a ? a.edges : S.doc.links).filter((x) => set.has(x.from) || set.has(x.to)).length;
+}
 function askRemove() {
   const many = multiIds();
   if (many.length > 1) {
-    modal("삭제", [el("p", {}, `선택한 ${many.length}개와 거기에 이어진 연결을 지웁니다.`)], [["삭제", () => { closeModal(); removeSelected(); }, "danger"], ["취소", closeModal]]);
+    const n = linkCount(many);
+    modal("삭제", [el("p", {}, `선택한 ${many.length}개${n ? `와 거기에 이어진 연결 ${n}개` : ""}를 지웁니다.`)], [["삭제", () => { closeModal(); removeSelected(); }, "danger"], ["취소", closeModal]]);
     return;
   }
   if (!S.sel || ["project", "glossary"].includes(S.sel.kind)) return;
-  const label = { agent: "에이전트와 거기에 이어진 연결", step: "단계와 거기에 이어진 연결", edge: "연결", link: "에이전트 연결" }[S.sel.kind];
-  modal("삭제", [el("p", {}, `${label}을 지웁니다.`)], [["삭제", () => { closeModal(); removeSelected(); }, "danger"], ["취소", closeModal]]);
+  const n = ["agent", "step"].includes(S.sel.kind) ? linkCount([S.sel.id]) : 0;
+  const label = { agent: "에이전트", step: "단계", edge: "연결", link: "에이전트 연결" }[S.sel.kind];
+  modal("삭제", [el("p", {}, `${label}${n ? `와 거기에 이어진 연결 ${n}개` : ""}를 지웁니다.`)], [["삭제", () => { closeModal(); removeSelected(); }, "danger"], ["취소", closeModal]]);
 }
 function nudge(dx, dy) {
   const ids = multiIds().filter((id) => !id.startsWith("edge:") && !id.startsWith("link:"));
@@ -1167,7 +1278,7 @@ function openMenu(x, y, items, title) {
     const list = buttons(), i = list.indexOf(document.activeElement);
     if (e.key === "ArrowDown") { e.preventDefault(); list[(i + 1) % list.length].focus(); }
     if (e.key === "ArrowUp") { e.preventDefault(); list[(i - 1 + list.length) % list.length].focus(); }
-    if (e.key === "Escape") { e.preventDefault(); closeMenu(); $("cy").focus(); }
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeMenu(); $("cy").focus(); }  // one Esc, one step
     if (e.key === "Tab") closeMenu();
   });
   setTimeout(() => document.addEventListener("pointerdown", outside, true));
@@ -1268,14 +1379,14 @@ function toast(text, withUndo = true) {
   add(box, el("span", {}, text), withUndo ? el("button", { type: "button", on: { click: () => { if (S.undo.length === mark) undo(); box.hidden = true; } } }, "되돌리기") : null);
   box.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(hideToast, 5000);
+  toastTimer = setTimeout(hideToast, Math.max(5000, String(text).length * 90));  // long notices stay long enough to read
 }
 function hideToast() { if ($("toast").matches(":hover, :focus-within")) toastTimer = setTimeout(hideToast, 1500); else $("toast").hidden = true; }
 function openShortcuts() {
   const rows = [["빈 곳 두 번 누르기", "그 자리에 추가"], ["오른쪽 클릭", "카드·연결·빈 곳 메뉴"], ["점을 빈 곳에 놓기", "새 카드를 만들고 연결"],
     ["점 누르기", "오른쪽에 다음 단계"], ["Shift + 끌기 / Shift + 누르기", "여러 개 선택"], ["화살표 (Shift)", "선택한 카드 옮기기 1칸 (5칸)"],
     ["Alt + 놓기", "격자에 맞추지 않기"], ["Enter, F2", "이름 바꾸기"], [`${mod}D`, "복제"], ["Delete, ⌫", "삭제"], [`${mod}K`, "찾기"],
-    [`${mod}Z / ${mod}Shift+Z`, "되돌리기 / 다시 실행"], ["+ − 0", "확대 · 축소 · 화면 맞춤"], ["Shift+F10, 메뉴 키", "선택한 것의 메뉴"], ["?", "이 안내"]];
+    [`${mod}Z / ${mod}Shift+Z`, "되돌리기 / 다시 실행"], ["+ − 0", "확대 · 축소 · 화면 맞춤"], ["Shift+F10, 메뉴 키", "선택한 것의 메뉴"], ["Esc", "선택 해제, 한 번 더 누르면 위로"], ["?", "이 안내"]];
   modal("단축키", [el("dl", { class: "keys" }, ...rows.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, v)]))], [["닫기", closeModal]]);
 }
 
@@ -1288,6 +1399,11 @@ document.addEventListener("keydown", (e) => {
   const cmd = e.metaKey || e.ctrlKey;
   S.alt = e.altKey;
   if (e.key === "Escape" && !$("modal").hidden) { closeModal(); return; }
+  if (e.key === "Escape" && $("modal").hidden && !$("menu") && S.doc && cy && !/INPUT|TEXTAREA|SELECT/.test(act?.tagName)) {
+    if (S.sel || cy.$(":selected").length) { S.sel = null; cy.elements().unselect(); markSelection(); renderDoc(); }
+    else if (curAgent()) back();
+    return;
+  }
   if (cmd && (e.key === "k" || e.key === "K") && S.doc && $("modal").hidden) { e.preventDefault(); openFind(); return; }
   if (!free) return;
   if (cmd && (e.key === "z" || e.key === "Z" || e.key === "y")) { e.preventDefault(); if (e.shiftKey || e.key === "y") redo(); else undo(); return; }
@@ -1820,17 +1936,21 @@ async function applyCard(m, keys = null) {
 }
 async function dismissCard(m) { await api("POST", `/api/cards/${m.id}/dismiss`); loadMessages(); }
 
+// Waiting = a wait call is open now. Recently seen but not waiting = it is working on a message (or between
+// two waits); after 150 s of silence it is gone.
 function renderAiState() {
   const box = $("ai-state");
-  const on = S.aiSeen !== null && S.aiSeen < 150;
-  box.className = on ? "" : "off";
-  box.textContent = on ? "AI가 대기 중입니다." : "AI가 대기하고 있지 않습니다. 보낸 메시지는 쌓였다가, 터미널에서 /clonamic-create-agent를 다시 실행하면 이어서 처리됩니다.";
+  const recent = S.aiSeen !== null && S.aiSeen < 150;
+  box.className = S.aiWaiting ? "" : recent ? "busy" : "off";
+  box.textContent = S.aiWaiting ? "AI가 대기 중입니다."
+    : recent ? "AI가 처리 중이거나 잠시 자리를 비웠습니다. 보낸 메시지는 순서대로 처리됩니다."
+      : "AI가 대기하고 있지 않습니다. 보낸 메시지는 쌓였다가, 터미널에서 /clonamic-create-agent를 다시 실행하면 이어서 처리됩니다.";
 }
 setInterval(async () => {
   if (!S.pid) return;
   const { ok, data } = await api("GET", `/api/projects/${S.pid}`);
-  if (ok) { S.aiSeen = data.ai_seen; renderAiState(); }
-}, 20000);
+  if (ok) { S.aiSeen = data.ai_seen; S.aiWaiting = data.ai_waiting; renderAiState(); }
+}, 10000);
 
 $("chat-form").addEventListener("submit", (e) => { e.preventDefault(); sendChat(); });
 $("chat-input").addEventListener("keydown", (e) => {
@@ -1852,35 +1972,41 @@ async function sendMessage(text) {
 }
 
 // ---------- export ----------
+// The path is checked first and on its own, so a wrong path shows up even while the design has errors.
+// With errors left, "초안으로 내보내기" still writes the set; its README says it is a draft and how many errors remain.
 async function openExport() {
   await flushSave();
   const input = el("input", { value: S.exportPath || S.defaultPath, "aria-label": "저장 경로" });
   const result = el("div");
+  const draftBtn = el("button", { type: "button", hidden: true, on: { click: () => doExport(true) } }, "초안으로 내보내기");
   const check = async () => {
     result.replaceChildren(el("p", { class: "muted" }, "검사 중…"));
-    const { ok, data } = await api("GET", `/api/projects/${S.pid}/check`);
-    if (!ok) { result.replaceChildren(el("p", { class: "issues" }, data.error)); return false; }
-    if (data.issues.length) {
-      result.replaceChildren(el("p", {}, `검사에 걸린 항목 ${data.issues.length}개를 먼저 고치세요.`), issueList(data.issues));
-      return false;
-    }
+    draftBtn.hidden = true;
     const plan = await api("POST", `/api/projects/${S.pid}/export`, { path: input.value, dry: true });
-    if (!plan.ok) { result.replaceChildren(el("p", { class: "issues" }, plan.data.error)); return false; }
-    const notes = [el("p", { class: "ok" }, "검사를 통과했습니다.")];
-    if (plan.data.foreign.length) notes.push(el("p", { class: "muted" }, `이 도구가 만들지 않은 파일 ${plan.data.foreign.length}개는 그대로 둡니다.`));
-    if (plan.data.clash.length) notes.push(el("p", { class: "issues" }, "같은 이름의 다른 파일이 있어 내보낼 수 없습니다: " + plan.data.clash.join(", ")));
+    if (!plan.ok) { result.replaceChildren(el("p", { class: "issues" }, plan.data.error || "경로를 확인하지 못했습니다.")); return null; }
+    const d = plan.data, notes = [];
+    S.issues = d.issues; renderIssueButton();
+    if (d.errors) {
+      notes.push(el("p", {}, `검사 오류 ${d.errors}개가 있습니다. 고친 뒤 내보내거나, 공유용으로 초안을 내보낼 수 있습니다.`), issueList(d.issues));
+      draftBtn.hidden = false;
+    } else notes.push(el("p", { class: "ok" }, d.issues.length ? `검사를 통과했습니다(주의 ${d.issues.length}개).` : "검사를 통과했습니다."));
+    if (d.foreign.length) notes.push(el("p", { class: "muted" }, `이 도구가 만들지 않은 파일 ${d.foreign.length}개는 그대로 둡니다.`));
+    if (d.clash.length) notes.push(el("p", { class: "issues" }, "같은 이름의 다른 파일이 있어 내보낼 수 없습니다: " + d.clash.join(", ")));
     if (!S.polished) notes.push(el("p", { class: "muted" }, "한국어 다듬기를 아직 하지 않았습니다. 다듬기를 요청하면 AI가 제안 카드로 보여 주고, 적용한 뒤 다시 내보내면 됩니다."));
     result.replaceChildren(...notes);
-    return !plan.data.clash.length;
+    if (d.clash.length) draftBtn.hidden = true;
+    return d;
   };
-  const doExport = async () => {
-    if (!(await check())) return;
-    const res = await api("POST", `/api/projects/${S.pid}/export`, { path: input.value });
+  const doExport = async (draft = false) => {
+    const d0 = await check();
+    if (!d0 || d0.clash.length || (d0.errors && !draft)) return;
+    const res = await api("POST", `/api/projects/${S.pid}/export`, { path: input.value, draft });
     if (!res.ok) { result.replaceChildren(el("p", { class: "issues" }, res.data.error)); return; }
     S.exportPath = input.value;
     renderSteps();
     const d = res.data;
-    result.replaceChildren(...[el("p", { class: "ok" }, `${d.path}에 ${d.written}개 파일을 내보냈습니다.`),
+    draftBtn.hidden = true;
+    result.replaceChildren(...[el("p", { class: "ok" }, `${d.path}에 ${d.written}개 파일을 ${d.draft ? "초안으로 " : ""}내보냈습니다.`),
       d.removed.length ? el("p", { class: "muted" }, `이전 내보내기의 파일 ${d.removed.length}개를 정리했습니다.`) : null,
       d.untouched.length ? el("p", { class: "muted" }, `다른 파일 ${d.untouched.length}개는 그대로 두었습니다.`) : null,
       d.polished ? null : el("p", { class: "muted" }, "README에 '다듬기 미적용'이 표시됩니다.")].filter(Boolean));
@@ -1892,9 +2018,10 @@ async function openExport() {
     loadMessages();
   };
   modal("내보내기", [el("label", { for: "export-path" }, "저장 경로"), input, result], [
-    ["검사", check], ["내보내기", doExport, "primary"], S.polished ? null : ["다듬기 요청", polish], ["닫기", closeModal],
+    ["검사", check], ["내보내기", () => doExport(false), "primary"], S.polished ? null : ["다듬기 요청", polish], ["닫기", closeModal],
   ].filter(Boolean));
   input.id = "export-path";
+  $("modal").querySelector(".modal-box > .row:last-child").prepend(draftBtn);
   check();
 }
 function goTo(target) {
@@ -1935,14 +2062,14 @@ $("resizer").addEventListener("pointerdown", (e) => {
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (cy) cy.style(STYLE()); });
 async function boot() {
   S.schema = (await api("GET", "/api/schema")).data;
+  try { await document.fonts.ready; } catch (_) { /* no font loading API */ }  // card sizes are measured with the real fonts
   await loadProjects();
   listen();
-  const pid = parseInt(location.hash.slice(1), 10);
-  if (pid && S.projects.some((p) => p.id === pid)) openProject(pid);
-  else renderAll();
+  const r = parseHash();
+  if (r && S.projects.some((p) => p.id === r.pid)) openProject(r.pid, r.level);
+  else { if (r) missingProject(r.pid); renderAll(); }
 }
-window.addEventListener("hashchange", () => {
-  const pid = parseInt(location.hash.slice(1), 10);
-  if (pid && pid !== S.pid) openProject(pid);
-});
+// Back, forward, and typing an address all land here.
+window.addEventListener("popstate", followHash);
+window.addEventListener("hashchange", followHash);
 boot();

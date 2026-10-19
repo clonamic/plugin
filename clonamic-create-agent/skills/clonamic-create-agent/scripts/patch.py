@@ -114,14 +114,25 @@ def _set(doc: dict, item: dict) -> None:
     _place(agent.setdefault("steps" if kind == "step" else "edges", []), lambda x: x.get("id") == xid, value, item["index"])
 
 
-def apply(doc: dict, items: list[dict]) -> tuple[dict, list[str]]:
+def apply(doc: dict, items: list[dict], same_ok: bool = False) -> tuple[dict, list[str]]:
     """New document with `items` applied, and the labels of items whose target changed since the card was made
-    (when any conflict, nothing is applied). Raises KeyError when a chosen item needs an agent that is missing."""
+    (when any conflict, nothing is applied). `same_ok`: a target that already holds the new value is no conflict
+    (a merge replaying its own earlier save). Raises KeyError when a chosen item needs an agent that is missing."""
     now = _units(doc)
-    conflicts = [it["label"] for it in items if (now[it["key"]][2] if it["key"] in now else None) != it["before"]]
+    value = lambda it: now[it["key"]][2] if it["key"] in now else None  # noqa: E731
+    conflicts = [it["label"] for it in items if value(it) != it["before"] and not (same_ok and value(it) == it["after"])]
     if conflicts:
         return doc, conflicts
     out = copy.deepcopy(doc)
     for it in items:
         _set(out, it)
     return out, []
+
+
+def merge(base: dict, mine: dict, current: dict) -> tuple[dict, list[str]]:
+    """Three-way merge for a save made from an older version: my changes since `base`, applied onto `current`.
+    Returns (merged document, labels that both sides changed differently). My layout wins (positions only)."""
+    merged, conflicts = apply(current, diff(base, mine), same_ok=True)
+    if not conflicts and "layout" in mine:
+        merged = {**merged, "layout": copy.deepcopy(mine["layout"])}
+    return merged, conflicts
