@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "fde-mode",
+  "version": "1.2.2",
+  "description": "A forward-deployed-engineer organisation for Claude Code, switched on with one explicit /fde-mode command: 94 Opus 5.5 subagents in 18 divisions analyse a pasted persona interview from distinct perspectives (person, problem, solution, environment and packaging, risk, strategy, data), debate, pass independent blind verification, and hand the user confidence-tagged questions for the persona and graded decisions for the user; then a tech gate, staged freeze, and a build organisation design (down to exact copy), implement, deploy and QA the agent service with UX and AI-tell checks, behind a local SQLite dashboard and safety hooks.",
+  "license": "MIT",
+  "author": {
+    "name": "Clonamic"
+  },
+  "keywords": [
+    "fde",
+    "requirements",
+    "interview",
+    "subagents",
+    "agent-organisation",
+    "korean",
+    "ux",
+    "ai-tell"
+  ],
+  "repository": "https://github.com/clonamic/plugin"
+}

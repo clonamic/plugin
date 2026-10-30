@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# FDE-Mode command line. Claude Code puts this plugin's bin/ on the Bash tool PATH,
+# so the director and agents simply run `fde <command>`. Hooks call it by full path.
+# Finds Python >= 3.12 (standard library only) and runs src/fde_mode from this plugin.
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+for c in "${FDE_PYTHON:-}" python3.14 python3.13 python3.12 python3 /opt/homebrew/bin/python3 /usr/local/bin/python3; do
+  [ -n "$c" ] || continue
+  command -v "$c" >/dev/null 2>&1 || continue
+  if "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' 2>/dev/null; then
+    exec "$c" -m fde_mode "$@"
+  fi
+done
+if command -v uv >/dev/null 2>&1; then
+  exec uv run --quiet --no-project --python 3.12 python -m fde_mode "$@"
+fi
+if [ "${1:-}" = "hook" ]; then cat >/dev/null 2>&1; exit 0; fi   # a hook must never break the session
+echo "FDE-Mode: Python 3.12+ not found. Install with 'uv python install 3.12' or 'brew install python@3.12', or set FDE_PYTHON." >&2
+exit 3
