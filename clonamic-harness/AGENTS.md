@@ -13,3 +13,6 @@ Point a project or global `AGENTS.md` at this file (Codex, Cursor, Grok read AGE
 9. Before claiming done, re-check every requirement with fresh evidence from after the last change; if anything is not really done, finish it.
 10. Report once in Korean, top-down and in outline form: a `핵심 요약` first (outcome, then failures and unverified items), then short bullet lists — numbered results with evidence, no narration or prose paragraphs.
 11. Every git commit, amend, tag, pull request, or release goes through the clonamic-git `clonamic-commit` skill: the user's own identity, no AI trailers or footers, and a `scan_history.py` check before any push.
+12. Personal additions: if `~/.clonamic/agent_add.md` exists, read it and follow it as the user's own instructions; if it is missing, continue silently. Claude Code loads `~/.clonamic/claude_add.md` through the import below instead, so it skips that read.
+
+@~/.clonamic/claude_add.md
