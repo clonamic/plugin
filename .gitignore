@@ -44,3 +44,14 @@ Docs/
 
 # kept local
 FDE-Mode/
+clonamic-admin/
+clonamic-git/
+
+# local data and archives
+*.sqlite
+*.sqlite3
+*.db
+*.tgz
+*.zip
+*.bak
+secrets*
